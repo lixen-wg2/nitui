@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Virtual Screen Buffer for Isotope.
+%%% @doc Virtual Screen Buffer for NitUI.
 %%%
 %%% Provides a virtual screen buffer that stores character cells with
 %%% their attributes. Supports differential rendering by comparing

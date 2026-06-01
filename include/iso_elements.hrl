@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Element Definitions
+%%% @doc NitUI Element Definitions
 %%%
 %%% All UI elements are records with a common base set of fields.
 %%% Elements are rendered by calling Module:render(Element, Bounds).
@@ -98,6 +98,7 @@
     value = <<>> :: binary() | string(),
     placeholder = <<>> :: binary() | string(),
     cursor_pos = 0 :: non_neg_integer(),
+    selection_anchor = undefined :: undefined | non_neg_integer(),
     on_change = undefined :: undefined | {atom(), atom()} | fun(),
     on_submit = undefined :: undefined | {atom(), atom()} | fun()
 }).

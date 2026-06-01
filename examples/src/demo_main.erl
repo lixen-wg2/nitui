@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo application for Isotope TUI framework.
+%%% @doc Demo application for NitUI TUI framework.
 %%%
-%%% Simple demo showing how to use isotope with callbacks:
+%%% Simple demo showing how to use nitui with callbacks:
 %%% - init/1 - return initial state (a map)
 %%% - view/1 - return the UI tree based on state
 %%% - handle_event/2 - handle events and return new state
@@ -11,13 +11,13 @@
 
 -behaviour(iso_callback).
 
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
-%% Isotope callbacks
+%% NitUI callbacks
 -export([init/1, view/1, handle_event/2]).
 
 %%====================================================================
-%% Isotope Callbacks
+%% NitUI Callbacks
 %%====================================================================
 
 init(_Args) ->
@@ -31,12 +31,12 @@ view(State) ->
         #box{
             id = main_box,
             border = double,
-            title = "Isotope Demo",
+            title = "NitUI Demo",
             focusable = true,
             style = #{fg => cyan, bold => true},
             children = [
                 #vbox{children = [
-                    #text{content = "Welcome to Isotope!", style = #{bold => true}},
+                    #text{content = "Welcome to NitUI!", style = #{bold => true}},
                     #text{content = "Tab/Arrows to navigate, Enter to activate"},
                     #text{content = "Ctrl+C to quit", style = #{fg => green}},
                     #spacer{height = 1},

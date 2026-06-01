@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Box Element
+%%% @doc NitUI Box Element
 %%%
 %%% Renders a container with optional border and title.
 %%% @end

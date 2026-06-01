@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Scroll Container Element
+%%% @doc NitUI Scroll Container Element
 %%%
 %%% A scrollable viewport that can contain child elements.
 %%% Supports vertical scrolling with optional scrollbar indicator.

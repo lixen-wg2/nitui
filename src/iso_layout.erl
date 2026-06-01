@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Layout Utilities
+%%% @doc NitUI Layout Utilities
 %%%
 %%% Centralized size calculation functions for elements.
 %%% Dispatches to element modules via iso_element behaviour.

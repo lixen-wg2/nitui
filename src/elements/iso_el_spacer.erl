@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Spacer Element
+%%% @doc NitUI Spacer Element
 %%%
 %%% A flexible spacer that fills remaining vertical space in a vbox.
 %%% Use this to push elements (like status_bar) to the bottom of the screen.

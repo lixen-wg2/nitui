@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Focus management for Isotope.
+%%% @doc Focus management for NitUI.
 %%%
 %%% Two-level focus model:
 %%% - Tab/Shift+Tab: Navigate between containers (box, tabs)
@@ -89,6 +89,7 @@ do_collect_containers(#panel{children = Children}) -> [do_collect_containers(C) 
 do_collect_containers(#vbox{children = Children}) -> [do_collect_containers(C) || C <- Children];
 do_collect_containers(#hbox{children = Children}) -> [do_collect_containers(C) || C <- Children];
 do_collect_containers(#scroll{children = Children}) -> [do_collect_containers(C) || C <- Children];
+do_collect_containers(#modal{children = Children}) -> [do_collect_containers(C) || C <- Children];
 do_collect_containers(_) -> [].
 
 %%====================================================================
@@ -149,6 +150,8 @@ do_find(#panel{children = Children}, Id) -> find_in_children(Children, Id);
 do_find(#vbox{children = Children}, Id) -> find_in_children(Children, Id);
 do_find(#hbox{children = Children}, Id) -> find_in_children(Children, Id);
 do_find(#scroll{children = Children}, Id) -> find_in_children(Children, Id);
+do_find(#modal{id = Id} = E, Id) -> E;
+do_find(#modal{children = Children}, Id) -> find_in_children(Children, Id);
 do_find(_, _) -> undefined.
 
 find_in_children([], _Id) -> undefined;
@@ -186,6 +189,7 @@ get_search_children(#panel{children = Children}) -> Children;
 get_search_children(#vbox{children = Children}) -> Children;
 get_search_children(#hbox{children = Children}) -> Children;
 get_search_children(#scroll{children = Children}) -> Children;
+get_search_children(#modal{children = Children}) -> Children;
 get_search_children(#tabs{tabs = TabList, active_tab = ActiveTab0}) ->
     ActiveTab = case ActiveTab0 of
         undefined -> case TabList of [#tab{id = First} | _] -> First; [] -> undefined end;

@@ -2,7 +2,7 @@
 _build
 _checkouts
 !examples/_checkouts
-!examples/_checkouts/isotope
+!examples/_checkouts/nitui
 _vendor
 .eunit
 *.o

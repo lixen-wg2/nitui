@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Engine - Shared navigation, resolution and data access
-%%% logic for the isotope TUI framework.
+%%% @doc NitUI Engine - Shared navigation, resolution and data access
+%%% logic for the nitui TUI framework.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(iso_engine).
@@ -13,11 +13,14 @@
 -export([navigate_scroll/5]).
 -export([navigate_tabs/2]).
 -export([navigate_tree/3]).
+-export([navigate_tree/5]).
+-export([scroll_tree/5]).
 -export([toggle_tree_node/3]).
 
 %% Height resolvers
 -export([resolved_table_visible_height/4]).
 -export([resolved_list_visible_height/4]).
+-export([resolved_tree_visible_height/4]).
 -export([resolved_scroll_bounds/3]).
 
 %% Page calculators
@@ -52,7 +55,9 @@
 -export([cycle_focus/4]).
 
 %% Input editing
--export([apply_char_input/3, apply_backspace/2]).
+-export([apply_char_input/3, apply_backspace/2, apply_delete_input/2]).
+-export([move_input_cursor/4, position_input_cursor/4, start_input_selection/3,
+         select_all_input/2]).
 
 %% Element navigation (unified per-element dispatch)
 -export([navigate_element/6, page_navigate_element/6]).
@@ -115,6 +120,14 @@ navigate_tabs(right, #tabs{tabs = TabList, active_tab = Active0} = T) ->
 navigate_tree(Dir, TreeEl, Bounds) ->
     iso_tree_nav:navigate(Dir, TreeEl, Bounds).
 
+navigate_tree(Dir, Lines, #tree{id = TreeId} = TreeEl, Tree, Bounds) ->
+    VisibleHeight = resolved_tree_visible_height(Tree, TreeId, TreeEl, Bounds),
+    iso_tree_nav:navigate(Dir, Lines, VisibleHeight, TreeEl).
+
+scroll_tree(Dir, Lines, #tree{id = TreeId} = TreeEl, Tree, Bounds) ->
+    VisibleHeight = resolved_tree_visible_height(Tree, TreeId, TreeEl, Bounds),
+    iso_tree_nav:scroll(Dir, Lines, VisibleHeight, TreeEl).
+
 toggle_tree_node(Dir, TreeEl, Bounds) ->
     iso_tree_nav:toggle(Dir, TreeEl, Bounds).
 
@@ -151,6 +164,14 @@ resolved_list_visible_height(Tree, ListId, #list{items = Items, height = H}, Bou
             end
     end.
 
+resolved_tree_visible_height(Tree, TreeId, TreeEl, Bounds) ->
+    case iso_bounds:find_element_bounds(Tree, TreeId, Bounds) of
+        {ok, #bounds{height = ResolvedHeight}} ->
+            max(1, ResolvedHeight);
+        not_found ->
+            max(1, iso_tree_nav:resolved_height(TreeEl, Bounds))
+    end.
+
 resolved_scroll_bounds(Tree, ScrollId, Bounds) ->
     case iso_bounds:find_element_bounds(Tree, ScrollId, Bounds) of
         {ok, ScrollBounds} -> ScrollBounds;
@@ -172,12 +193,7 @@ page_lines_list(Tree, ListId, List, Bounds) ->
     resolved_list_visible_height(Tree, ListId, List, Bounds).
 
 page_lines_tree(Tree, TreeId, TreeEl, Bounds) ->
-    case iso_bounds:find_element_bounds(Tree, TreeId, Bounds) of
-        {ok, #bounds{height = ResolvedHeight}} ->
-            max(1, ResolvedHeight);
-        not_found ->
-            max(1, iso_tree_nav:resolved_height(TreeEl, Bounds))
-    end.
+    resolved_tree_visible_height(Tree, TreeId, TreeEl, Bounds).
 
 page_lines_scroll(Tree, ScrollId, Bounds) ->
     case resolved_scroll_bounds(Tree, ScrollId, Bounds) of
@@ -268,6 +284,8 @@ scroll_target_element(Tree, Id) ->
             {list, Id};
         #table{} ->
             {table, Id};
+        #tree{} ->
+            {tree, Id};
         #scroll{} ->
             {scroll, Id};
         _ ->
@@ -412,7 +430,7 @@ navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
             NewUS = selection_user_state(Cb, Event, US),
             {ok, NewTree, NewUS};
         #tree{} = TreeEl when Dir =:= up; Dir =:= down ->
-            NewTreeEl = navigate_tree(Dir, TreeEl, Bounds),
+            NewTreeEl = navigate_tree(Dir, 1, TreeEl, Tree, Bounds),
             NewTree = iso_tree:update(Tree, ElementId, NewTreeEl),
             NewUS = maybe_tree_selection_user_state(Cb, TreeEl, NewTreeEl, US),
             {ok, NewTree, NewUS};
@@ -536,14 +554,20 @@ element_id(_) -> undefined.
 
 %% @doc Apply a character insertion at cursor position.
 %% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input.
--spec apply_char_input(term(), term(), string() | binary()) ->
+-spec apply_char_input(term(), term(), integer() | string() | binary()) ->
     {ok, term(), term(), binary()} | false.
+apply_char_input(_Tree, undefined, _Char) ->
+    false;
 apply_char_input(Tree, FocusedChild, Char) ->
     case iso_focus:find_element(Tree, FocusedChild) of
-        #input{id = Id, value = Value, cursor_pos = Pos} = Input ->
-            {Before, After} = split_at(Value, Pos),
-            NewValue = unicode:characters_to_binary([Before, Char, After]),
-            NewInput = Input#input{value = NewValue, cursor_pos = Pos + 1},
+        #input{id = Id} = Input ->
+            InsertedChars = input_chars(Char),
+            {NewValue, NewPos} = replace_input_range(Input, InsertedChars),
+            NewInput = Input#input{
+                value = NewValue,
+                cursor_pos = NewPos,
+                selection_anchor = undefined
+            },
             NewTree = iso_tree:update(Tree, FocusedChild, NewInput),
             {ok, NewTree, Id, NewValue};
         _ ->
@@ -554,21 +578,208 @@ apply_char_input(Tree, FocusedChild, Char) ->
 %% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input or cursor at 0.
 -spec apply_backspace(term(), term()) ->
     {ok, term(), term(), binary()} | false.
+apply_backspace(_Tree, undefined) ->
+    false;
 apply_backspace(Tree, FocusedChild) ->
     case iso_focus:find_element(Tree, FocusedChild) of
-        #input{id = Id, value = Value, cursor_pos = Pos} = Input when Pos > 0 ->
-            {Before, After} = split_at(Value, Pos),
-            NewBefore = case Before of
-                [] -> [];
-                _ -> lists:sublist(Before, length(Before) - 1)
-            end,
-            NewValue = unicode:characters_to_binary([NewBefore, After]),
-            NewInput = Input#input{value = NewValue, cursor_pos = max(0, Pos - 1)},
-            NewTree = iso_tree:update(Tree, FocusedChild, NewInput),
-            {ok, NewTree, Id, NewValue};
+        #input{id = Id} = Input ->
+            case backspace_input(Input) of
+                false ->
+                    false;
+                {NewValue, NewPos} ->
+                    NewInput = Input#input{
+                        value = NewValue,
+                        cursor_pos = NewPos,
+                        selection_anchor = undefined
+                    },
+                    NewTree = iso_tree:update(Tree, FocusedChild, NewInput),
+                    {ok, NewTree, Id, NewValue}
+            end;
         _ ->
             false
     end.
+
+-spec apply_delete_input(term(), term()) ->
+    {ok, term(), term(), binary()} | false.
+apply_delete_input(_Tree, undefined) ->
+    false;
+apply_delete_input(Tree, FocusedChild) ->
+    case iso_focus:find_element(Tree, FocusedChild) of
+        #input{id = Id} = Input ->
+            case delete_input(Input) of
+                false ->
+                    false;
+                {NewValue, NewPos} ->
+                    NewInput = Input#input{
+                        value = NewValue,
+                        cursor_pos = NewPos,
+                        selection_anchor = undefined
+                    },
+                    NewTree = iso_tree:update(Tree, FocusedChild, NewInput),
+                    {ok, NewTree, Id, NewValue}
+            end;
+        _ ->
+            false
+    end.
+
+-spec move_input_cursor(term(), term(), left | right | home | 'end', boolean()) ->
+    {ok, term()} | false.
+move_input_cursor(_Tree, undefined, _Dir, _Select) ->
+    false;
+move_input_cursor(Tree, InputId, Dir, Select) ->
+    case iso_focus:find_element(Tree, InputId) of
+        #input{} = Input ->
+            NewInput = move_input_cursor_element(Input, Dir, Select),
+            {ok, iso_tree:update(Tree, InputId, NewInput)};
+        _ ->
+            false
+    end.
+
+-spec position_input_cursor(term(), term(), integer(), boolean()) -> {ok, term()} | false.
+position_input_cursor(_Tree, undefined, _Pos, _Select) ->
+    false;
+position_input_cursor(Tree, InputId, Pos, Select) ->
+    case iso_focus:find_element(Tree, InputId) of
+        #input{} = Input ->
+            NewInput = position_input_cursor_element(Input, Pos, Select),
+            {ok, iso_tree:update(Tree, InputId, NewInput)};
+        _ ->
+            false
+    end.
+
+-spec start_input_selection(term(), term(), integer()) -> {ok, term()} | false.
+start_input_selection(_Tree, undefined, _Pos) ->
+    false;
+start_input_selection(Tree, InputId, Pos) ->
+    case iso_focus:find_element(Tree, InputId) of
+        #input{} = Input ->
+            SafePos = clamp_input_pos(Pos, Input),
+            NewInput = Input#input{cursor_pos = SafePos, selection_anchor = SafePos},
+            {ok, iso_tree:update(Tree, InputId, NewInput)};
+        _ ->
+            false
+    end.
+
+-spec select_all_input(term(), term()) -> {ok, term()} | false.
+select_all_input(_Tree, undefined) ->
+    false;
+select_all_input(Tree, InputId) ->
+    case iso_focus:find_element(Tree, InputId) of
+        #input{} = Input ->
+            Len = input_length(Input),
+            Anchor = case Len of
+                0 -> undefined;
+                _ -> 0
+            end,
+            NewInput = Input#input{cursor_pos = Len, selection_anchor = Anchor},
+            {ok, iso_tree:update(Tree, InputId, NewInput)};
+        _ ->
+            false
+    end.
+
+replace_input_range(Input, InsertedChars) ->
+    Chars = input_value_chars(Input),
+    {Start, End} = input_replace_range(Input),
+    {Before, Rest} = lists:split(Start, Chars),
+    {_Replaced, After} = lists:split(End - Start, Rest),
+    NewChars = Before ++ InsertedChars ++ After,
+    {unicode:characters_to_binary(NewChars), Start + length(InsertedChars)}.
+
+backspace_input(Input = #input{cursor_pos = Pos}) ->
+    case input_selection_range(Input) of
+        {Start, End} ->
+            delete_input_range(Input, Start, End);
+        none ->
+            SafePos = clamp_input_pos(Pos, Input),
+            case SafePos of
+                0 -> false;
+                _ -> delete_input_range(Input, SafePos - 1, SafePos)
+            end
+    end.
+
+delete_input(Input = #input{cursor_pos = Pos}) ->
+    case input_selection_range(Input) of
+        {Start, End} ->
+            delete_input_range(Input, Start, End);
+        none ->
+            SafePos = clamp_input_pos(Pos, Input),
+            case SafePos >= input_length(Input) of
+                true -> false;
+                false -> delete_input_range(Input, SafePos, SafePos + 1)
+            end
+    end.
+
+delete_input_range(Input, Start, End) ->
+    Chars = input_value_chars(Input),
+    {Before, Rest} = lists:split(Start, Chars),
+    {_Deleted, After} = lists:split(End - Start, Rest),
+    {unicode:characters_to_binary(Before ++ After), Start}.
+
+move_input_cursor_element(Input, Dir, Select) ->
+    CurrentPos = clamp_input_pos(Input#input.cursor_pos, Input),
+    TargetPos = case {Select, input_selection_range(Input), Dir} of
+        {false, {Start, _End}, left} -> Start;
+        {false, {_Start, End}, right} -> End;
+        _ -> move_pos(Dir, CurrentPos, input_length(Input))
+    end,
+    update_input_cursor_selection(Input, CurrentPos, TargetPos, Select).
+
+position_input_cursor_element(Input, Pos, Select) ->
+    CurrentPos = clamp_input_pos(Input#input.cursor_pos, Input),
+    TargetPos = clamp_input_pos(Pos, Input),
+    update_input_cursor_selection(Input, CurrentPos, TargetPos, Select).
+
+update_input_cursor_selection(Input, CurrentPos, TargetPos, true) ->
+    Anchor0 = case Input#input.selection_anchor of
+        undefined -> CurrentPos;
+        ExistingAnchor -> clamp_input_pos(ExistingAnchor, Input)
+    end,
+    Anchor = case Anchor0 =:= TargetPos of
+        true -> undefined;
+        false -> Anchor0
+    end,
+    Input#input{cursor_pos = TargetPos, selection_anchor = Anchor};
+update_input_cursor_selection(Input, _CurrentPos, TargetPos, false) ->
+    Input#input{cursor_pos = TargetPos, selection_anchor = undefined}.
+
+move_pos(left, Pos, _Len) -> max(0, Pos - 1);
+move_pos(right, Pos, Len) -> min(Len, Pos + 1);
+move_pos(home, _Pos, _Len) -> 0;
+move_pos('end', _Pos, Len) -> Len.
+
+input_replace_range(Input = #input{cursor_pos = Pos}) ->
+    case input_selection_range(Input) of
+        {Start, End} -> {Start, End};
+        none ->
+            SafePos = clamp_input_pos(Pos, Input),
+            {SafePos, SafePos}
+    end.
+
+input_selection_range(#input{selection_anchor = undefined}) ->
+    none;
+input_selection_range(Input = #input{cursor_pos = CursorPos, selection_anchor = Anchor}) ->
+    SafeCursor = clamp_input_pos(CursorPos, Input),
+    SafeAnchor = clamp_input_pos(Anchor, Input),
+    case SafeCursor =:= SafeAnchor of
+        true -> none;
+        false -> {min(SafeCursor, SafeAnchor), max(SafeCursor, SafeAnchor)}
+    end.
+
+clamp_input_pos(Pos, Input) ->
+    min(max(0, Pos), input_length(Input)).
+
+input_length(Input) ->
+    length(input_value_chars(Input)).
+
+input_value_chars(#input{value = Value}) ->
+    input_chars(Value).
+
+input_chars(Value) when is_integer(Value) ->
+    [Value];
+input_chars(Value) when is_binary(Value) ->
+    unicode:characters_to_list(Value);
+input_chars(Value) when is_list(Value) ->
+    unicode:characters_to_list(unicode:characters_to_binary(Value)).
 
 
 %%====================================================================
@@ -620,8 +831,8 @@ init_focus_state(CallbackModule, InitArg) ->
 %%
 %% When ContextTree is `undefined' (initial render after init or push),
 %% view/1 is invoked twice: the first call seeds the
-%% `isotope_view_tree' process-dictionary key, and the second call
-%% sees that tree via isotope:selected_item/1. view/1 MUST therefore
+%% `nitui_view_tree' process-dictionary key, and the second call
+%% sees that tree via nitui:selected_item/1. view/1 MUST therefore
 %% be a pure function of State on those entry points; side effects
 %% will fire twice.
 %%
@@ -634,14 +845,14 @@ call_view(CallbackModule, State, ContextTree) ->
     call_view_once(CallbackModule, State, ContextTree).
 
 call_view_once(CallbackModule, State, ContextTree) ->
-    Previous = erlang:get(isotope_view_tree),
-    erlang:put(isotope_view_tree, ContextTree),
+    Previous = erlang:get(nitui_view_tree),
+    erlang:put(nitui_view_tree, ContextTree),
     try
         CallbackModule:view(State)
     after
         case Previous of
-            undefined -> erlang:erase(isotope_view_tree);
-            _ -> erlang:put(isotope_view_tree, Previous)
+            undefined -> erlang:erase(nitui_view_tree);
+            _ -> erlang:put(nitui_view_tree, Previous)
         end
     end.
 

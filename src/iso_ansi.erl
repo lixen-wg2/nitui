@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope ANSI Helpers
+%%% @doc NitUI ANSI Helpers
 %%%
 %%% Common ANSI escape sequence utilities used by element modules.
 %%% @end

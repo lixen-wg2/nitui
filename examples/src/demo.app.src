@@ -1,12 +1,12 @@
 {application, demo, [
-    {description, "Isotope Demo Application"},
+    {description, "NitUI Demo Application"},
     {vsn, "0.1.0"},
     {registered, [demo_server]},
     {mod, {demo_app, []}},
     {applications, [
         kernel,
         stdlib,
-        isotope
+        nitui
     ]},
     {env, []},
     {modules, []},

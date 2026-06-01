@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Element Behaviour
+%%% @doc NitUI Element Behaviour
 %%%
 %%% Defines the callbacks that element modules must implement.
 %%% Each element type (text, box, button, etc.) has its own module

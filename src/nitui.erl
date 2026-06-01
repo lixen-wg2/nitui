@@ -1,12 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope TUI Framework - Main API module.
+%%% @doc NitUI TUI Framework - Main API module.
 %%%
-%%% Isotope is a Nitrogen-inspired terminal UI framework for Erlang.
+%%% NitUI is a Nitrogen-inspired terminal UI framework for Erlang.
 %%% This module provides the public API for starting and interacting
 %%% with TUI applications.
 %%% @end
 %%%-------------------------------------------------------------------
--module(isotope).
+-module(nitui).
 
 -include("iso_elements.hrl").
 
@@ -15,23 +15,23 @@
 -export([selected_item/1, selected_item/2, selected_item/3]).
 
 %%--------------------------------------------------------------------
-%% @doc Start the Isotope TUI application.
+%% @doc Start the NitUI TUI application.
 %% @end
 %%--------------------------------------------------------------------
 -spec start() -> ok | {error, term()}.
 start() ->
-    case application:ensure_all_started(isotope) of
+    case application:ensure_all_started(nitui) of
         {ok, _} -> ok;
         {error, _} = Error -> Error
     end.
 
 %%--------------------------------------------------------------------
-%% @doc Stop the Isotope TUI application.
+%% @doc Stop the NitUI TUI application.
 %% @end
 %%--------------------------------------------------------------------
 -spec stop() -> ok | {error, term()}.
 stop() ->
-    application:stop(isotope).
+    application:stop(nitui).
 
 %%--------------------------------------------------------------------
 %% @doc Return the selected item for a list element in the current view
@@ -41,7 +41,7 @@ stop() ->
 %%--------------------------------------------------------------------
 -spec selected_item(term()) -> term() | undefined.
 selected_item(ElementId) ->
-    case erlang:get(isotope_view_tree) of
+    case erlang:get(nitui_view_tree) of
         undefined -> undefined;
         Tree -> selected_item_from_tree(Tree, ElementId)
     end.

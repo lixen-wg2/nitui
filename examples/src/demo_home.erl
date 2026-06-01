@@ -6,7 +6,7 @@
 
 -behaviour(iso_callback).
 
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -57,7 +57,7 @@ view(State) ->
     #vbox{children = [
         %% Header bar
         #header{
-            title = "Isotope Observer",
+            title = "NitUI Observer",
             subtitle = NodeName,
             items = [
                 {"Uptime", UptimeStr},

@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope VBox Element
+%%% @doc NitUI VBox Element
 %%%
 %%% Renders children vertically with optional spacing.
 %%% @end

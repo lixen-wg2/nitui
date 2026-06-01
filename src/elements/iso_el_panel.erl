@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Panel Element
+%%% @doc NitUI Panel Element
 %%%
 %%% Renders a simple container without border.
 %%% @end

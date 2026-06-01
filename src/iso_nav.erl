@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Navigation Utilities
+%%% @doc NitUI Navigation Utilities
 %%%
 %%% Common functions for navigating scrollable elements (tables, lists).
 %%% Used by iso_server and iso_engine.

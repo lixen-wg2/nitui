@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope top-level supervisor.
+%%% @doc NitUI top-level supervisor.
 %%%
 %%% Supervises:
 %%% - iso_tty: TTY owner process (prim_tty state, cleanup)

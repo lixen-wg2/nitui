@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope List Element
+%%% @doc NitUI List Element
 %%%
 %%% A selectable list of items with keyboard navigation.
 %%% Supports both simple binary items and {Id, Label} tuples.

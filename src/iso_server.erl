@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope UI Server - Core TUI event loop and rendering.
+%%% @doc NitUI UI Server - Core TUI event loop and rendering.
 %%%
 %%% This module handles all the TUI machinery:
 %%% - Input event handling (keyboard, mouse)
@@ -35,6 +35,15 @@
     container_ids :: [term()]
 }).
 
+%% Focus tracking for elements inside an active #modal{} overlay.
+%% Mirrors the focused_container/focused_child/container_ids triple on
+%% #iso_state but scoped to the modal subtree.
+-record(modal_focus, {
+    container :: term(),
+    child :: term(),
+    container_ids :: [term()]
+}).
+
 -record(iso_state, {
     callback :: module(),          %% User callback module
     user_state :: term(),          %% User's state (typically a map)
@@ -44,6 +53,7 @@
     focused_child :: term(),       %% Currently focused child within container (Arrow navigation)
     container_ids :: [term()],     %% List of container IDs (for Tab)
     modal :: undefined | term(),   %% Current modal overlay
+    modal_focus = undefined :: undefined | #modal_focus{},  %% Focus inside modal subtree
     debug_event :: undefined | term(),  %% Last unhandled event for debug display
     nav_stack = [] :: [nav_entry()],    %% Navigation stack for push/pop
     prev_screen :: undefined | iso_screen:screen(),  %% Previous screen for diff rendering
@@ -117,7 +127,7 @@ send_event(Server, Event) ->
 %%====================================================================
 
 init({_Name, CallbackModule, InitArg}) ->
-    %% Note: iso_tty and iso_input are started by isotope application,
+    %% Note: iso_tty and iso_input are started by nitui application,
     %% which must be a dependency. OTP ensures dependencies are fully
     %% started before this application starts.
     %% Register this process as the input target
@@ -158,11 +168,11 @@ handle_cast({update, UpdateFun}, State) ->
     {noreply, NewState} = do_update(UpdateFun, State),
     {noreply, NewState};
 handle_cast({set_modal, Modal}, State) ->
-    NewState = State#iso_state{modal = Modal},
+    NewState = activate_modal(State, Modal),
     FinalState = render_diff(NewState),
     {noreply, FinalState};
 handle_cast(close_modal, State) ->
-    NewState = State#iso_state{modal = undefined},
+    NewState = deactivate_modal(State),
     FinalState = render_diff(NewState),
     {noreply, FinalState};
 handle_cast({send_event, Event}, State) ->
@@ -227,6 +237,81 @@ terminate(_Reason, #iso_state{cursor_timer = CursorTimer, refresh_timer = Refres
     ok.
 
 %%====================================================================
+%% Internal: Modal focus helpers
+%%====================================================================
+%%
+%% When a #modal{} is active, focus navigation and input routing target
+%% the modal subtree rather than the main view tree. `modal_focus` on
+%% #iso_state tracks the modal's own {container, child, container_ids}
+%% triple; `activate_modal/2` initialises it from the modal's contents
+%% and `deactivate_modal/1` clears it when the modal closes.
+
+%% Set/update the active modal, picking an initial focus inside it.
+activate_modal(State, Modal) ->
+    State#iso_state{modal = Modal, modal_focus = init_modal_focus(Modal)}.
+
+%% Clear the active modal and its focus tracking.
+deactivate_modal(State) ->
+    State#iso_state{modal = undefined, modal_focus = undefined}.
+
+init_modal_focus(undefined) ->
+    undefined;
+init_modal_focus(Modal) ->
+    ContainerIds = iso_focus:collect_containers(Modal),
+    Container = case ContainerIds of [First | _] -> First; [] -> undefined end,
+    ChildIds = iso_focus:collect_children(Modal, Container),
+    Child = case ChildIds of
+        [FirstChild | _] -> FirstChild;
+        [] ->
+            %% No focusable child under a container - try the modal's own
+            %% direct children (buttons/inputs sitting in a vbox/hbox).
+            case iso_focus:collect_children(#box{children = modal_children(Modal)}, undefined) of
+                [F | _] -> F;
+                [] -> undefined
+            end
+    end,
+    #modal_focus{container = Container, child = Child, container_ids = ContainerIds}.
+
+modal_children(#modal{children = Children}) -> Children;
+modal_children(_) -> [].
+
+%% Return {Tree, Container, Child, ContainerIds, Where} for the active
+%% focus target. Where is `modal` when a modal is active, `main` otherwise.
+active_focus(#iso_state{modal = undefined, tree = Tree,
+                        focused_container = FC, focused_child = Ch,
+                        container_ids = Ids}) ->
+    {Tree, FC, Ch, Ids, main};
+active_focus(#iso_state{modal = Modal, modal_focus = undefined} = State) ->
+    active_focus(State#iso_state{modal_focus = init_modal_focus(Modal)});
+active_focus(#iso_state{modal = Modal,
+                        modal_focus = #modal_focus{container = FC, child = Ch,
+                                                   container_ids = Ids}}) ->
+    {Modal, FC, Ch, Ids, modal}.
+
+%% Write {Tree, Container, Child, ContainerIds} back into the right slot.
+set_active(main, State, Tree, FC, Ch, Ids) ->
+    State#iso_state{tree = Tree,
+                    focused_container = FC,
+                    focused_child = Ch,
+                    container_ids = Ids};
+set_active(modal, State, Modal, FC, Ch, Ids) ->
+    State#iso_state{modal = Modal,
+                    modal_focus = #modal_focus{container = FC, child = Ch,
+                                               container_ids = Ids}}.
+
+%% Write back just the tree (modal subtree updates after input edits).
+set_active_tree(main, State, Tree) ->
+    State#iso_state{tree = Tree};
+set_active_tree(modal, State, Modal) ->
+    State#iso_state{modal = Modal}.
+
+%% Write back just the focused child within the active focus root.
+set_active_child(main, State, Ch) ->
+    State#iso_state{focused_child = Ch};
+set_active_child(modal, State = #iso_state{modal_focus = MF}, Ch) ->
+    State#iso_state{modal_focus = MF#modal_focus{child = Ch}}.
+
+%%====================================================================
 %% Internal: Input handling
 %%====================================================================
 
@@ -238,6 +323,11 @@ handle_input({ctrl, $c}, State = #iso_state{callback = Cb, user_state = US}) ->
     case call_handler(Cb, quit, US) of
         {stop, _Reason, _NewUS} -> {stop, normal, State};
         _ -> {noreply, State}
+    end;
+handle_input({ctrl, $a}, State) ->
+    case handle_input_select_all(State) of
+        unhandled -> forward_event({ctrl, $a}, State);
+        Result -> Result
     end;
 handle_input(tab, State) ->
     handle_focus_next(State);
@@ -259,16 +349,31 @@ handle_input({key, page_down}, State) ->
         unhandled -> forward_event({key, page_down}, State);
         Result -> Result
     end;
+handle_input({key, {shift, Dir}}, State)
+        when Dir =:= left; Dir =:= right; Dir =:= home; Dir =:= 'end' ->
+    case handle_input_cursor(Dir, true, State) of
+        unhandled -> forward_event({key, {shift, Dir}}, State);
+        Result -> Result
+    end;
+handle_input({key, Dir}, State) when Dir =:= home; Dir =:= 'end' ->
+    case handle_input_cursor(Dir, false, State) of
+        unhandled -> forward_event({key, Dir}, State);
+        Result -> Result
+    end;
 handle_input({key, Dir}, State) when Dir =:= up; Dir =:= down; Dir =:= left; Dir =:= right ->
     handle_arrow(Dir, State);
 handle_input({char, Char}, State) when Char >= 32 ->
     handle_char_input(Char, State);
 handle_input(backspace, State) ->
     handle_backspace(State);
+handle_input(delete, State) ->
+    handle_delete(State);
 handle_input({mouse, click, left, Col, Row}, State = #iso_state{modal = Modal, bounds = Bounds}) when Modal =/= undefined ->
     handle_modal_click(Col, Row, Modal, Bounds, State);
 handle_input({mouse, click, left, Col, Row}, State) ->
     handle_mouse_click(Col, Row, State);
+handle_input({mouse, motion, left, Col, Row}, State) ->
+    handle_input_drag(Col, Row, State);
 handle_input({mouse, scroll, Dir, Col, Row}, State) when Dir =:= up; Dir =:= down ->
     handle_scroll(Dir, 1, Col, Row, State);
 handle_input({mouse, scroll, _Dir, _Col, _Row}, State) ->
@@ -284,22 +389,24 @@ handle_input(Event, State) ->
 %% Internal: Focus management (Tab = containers, Arrows = children)
 %%====================================================================
 
-handle_focus_next(State = #iso_state{container_ids = Ids, focused_container = Current, tree = Tree}) ->
+handle_focus_next(State) ->
+    {Tree, Current, _Ch, Ids, Where} = active_focus(State),
     {NewContainer, NewChild} = iso_engine:cycle_focus(next, Ids, Current, Tree),
-    NewState0 = State#iso_state{focused_container = NewContainer, focused_child = NewChild},
+    NewState0 = set_active(Where, State, Tree, NewContainer, NewChild, Ids),
     NewState = update_cursor_timer(NewState0),
     FinalState = render_diff(NewState),
     {noreply, FinalState}.
 
-handle_focus_prev(State = #iso_state{container_ids = Ids, focused_container = Current, tree = Tree}) ->
+handle_focus_prev(State) ->
+    {Tree, Current, _Ch, Ids, Where} = active_focus(State),
     {NewContainer, NewChild} = iso_engine:cycle_focus(prev, Ids, Current, Tree),
-    NewState0 = State#iso_state{focused_container = NewContainer, focused_child = NewChild},
+    NewState0 = set_active(Where, State, Tree, NewContainer, NewChild, Ids),
     NewState = update_cursor_timer(NewState0),
     FinalState = render_diff(NewState),
     {noreply, FinalState}.
 
 handle_close_modal(State) ->
-    NewState = State#iso_state{modal = undefined},
+    NewState = deactivate_modal(State),
     FinalState = render_diff(NewState),
     {noreply, FinalState}.
 
@@ -320,7 +427,7 @@ handle_modal_button_click(ButtonId, Modal, State = #iso_state{callback = Cb, use
                 {noreply, NewUS} ->
                     do_update(fun(_) -> NewUS end, State);
                 {modal, NewModal, NewUS} ->
-                    NewState = State#iso_state{user_state = NewUS, modal = NewModal},
+                    NewState = activate_modal(State#iso_state{user_state = NewUS}, NewModal),
                     FinalState = render_diff(NewState),
                     {noreply, FinalState};
                 Other ->
@@ -334,16 +441,15 @@ handle_modal_button_click(ButtonId, Modal, State = #iso_state{callback = Cb, use
 %% Internal: Element activation
 %%====================================================================
 
-handle_activate(State = #iso_state{focused_container = Container, focused_child = FocusedChild,
-                                   tree = Tree, bounds = _Bounds,
-                                   callback = Cb, user_state = US}) ->
+handle_activate(State = #iso_state{bounds = _Bounds, callback = Cb, user_state = US}) ->
+    {Tree, Container, FocusedChild, _Ids, _Where} = active_focus(State),
     case iso_engine:activation_target(Tree, Container, FocusedChild) of
         #button{id = Id, on_click = Handler} ->
             case call_handler(Cb, {click, Id, Handler}, US) of
                 {noreply, NewUS} ->
                     do_update(fun(_) -> NewUS end, State);
                 {modal, Modal, NewUS} ->
-                    NewState = State#iso_state{user_state = NewUS, modal = Modal},
+                    NewState = activate_modal(State#iso_state{user_state = NewUS}, Modal),
                     FinalState = render_diff(NewState),
                     {noreply, FinalState};
                 {switch, NewModule, Args} ->
@@ -383,7 +489,7 @@ handle_activate(State = #iso_state{focused_container = Container, focused_child 
                 {handled, {noreply, NewUS}, _} ->
                     apply_view_update(NewUS, State, Tree);
                 {handled, {modal, Modal, NewUS}, _} ->
-                    NewState = State#iso_state{user_state = NewUS, modal = Modal},
+                    NewState = activate_modal(State#iso_state{user_state = NewUS}, Modal),
                     FinalState = render_diff(NewState),
                     {noreply, FinalState};
                 {handled, {switch, NewModule, Args}, _} ->
@@ -409,7 +515,7 @@ handle_activate(State = #iso_state{focused_container = Container, focused_child 
                 {handled, {noreply, NewUS}, _} ->
                     apply_view_update(NewUS, State, Tree);
                 {handled, {modal, Modal, NewUS}, _} ->
-                    NewState = State#iso_state{user_state = NewUS, modal = Modal},
+                    NewState = activate_modal(State#iso_state{user_state = NewUS}, Modal),
                     FinalState = render_diff(NewState),
                     {noreply, FinalState};
                 {handled, {switch, NewModule, Args}, _} ->
@@ -452,7 +558,7 @@ handle_activate_in_tabs(Container, Tree, Cb, US, State) ->
                                 {handled, {noreply, NewUS}, _} ->
                                     apply_view_update(NewUS, State, Tree);
                                 {handled, {modal, Modal, NewUS}, _} ->
-                                    NewState = State#iso_state{user_state = NewUS, modal = Modal},
+                                    NewState = activate_modal(State#iso_state{user_state = NewUS}, Modal),
                                     FinalState = render_diff(NewState),
                                     {noreply, FinalState};
                                 {handled, {switch, NewModule, Args}, _} ->
@@ -482,9 +588,35 @@ handle_activate_in_tabs(Container, Tree, Cb, US, State) ->
 %% Internal: Arrow key navigation within container
 %%====================================================================
 
-handle_arrow(Dir, State = #iso_state{focused_container = Container, focused_child = Child,
-                                     tree = Tree, bounds = Bounds,
-                                     callback = Cb, user_state = US}) ->
+handle_arrow(Dir, State = #iso_state{bounds = Bounds, callback = Cb, user_state = US}) ->
+    case handle_input_cursor(Dir, false, State) of
+        unhandled ->
+            {Tree, Container, Child, _Ids, Where} = active_focus(State),
+            handle_arrow_non_input(Dir, State, Container, Child, Tree, Bounds, Cb, US, Where);
+        Result ->
+            Result
+    end.
+
+handle_arrow_non_input(Dir, State, undefined, Child, Tree, _Bounds, _Cb, _US, modal) ->
+    %% Modal subtree without a #box{focusable=true} container: navigate
+    %% across the modal's flat list of focusable buttons/inputs.
+    FlatIds = iso_focus:collect_children(#box{children = modal_children(Tree)}, undefined),
+    case {Dir, FlatIds} of
+        {_, []} -> {noreply, State};
+        {up, _} ->
+            NewChild = iso_focus:prev_focus(FlatIds, Child),
+            navigate_modal_to_child(State, NewChild);
+        {down, _} ->
+            NewChild = iso_focus:next_focus(FlatIds, Child),
+            navigate_modal_to_child(State, NewChild);
+        {left, _} ->
+            NewChild = iso_focus:prev_focus(FlatIds, Child),
+            navigate_modal_to_child(State, NewChild);
+        {right, _} ->
+            NewChild = iso_focus:next_focus(FlatIds, Child),
+            navigate_modal_to_child(State, NewChild)
+    end;
+handle_arrow_non_input(Dir, State, Container, Child, Tree, Bounds, Cb, US, _Where) ->
     %% Get children of current container
     ChildIds = iso_focus:collect_children(Tree, Container),
     case iso_focus:find_element(Tree, Container) of
@@ -541,18 +673,26 @@ handle_arrow(Dir, State = #iso_state{focused_container = Container, focused_chil
             %% For box, navigate focused child widgets before switching child focus.
             case iso_engine:navigate_element(Dir, Child, Tree, Bounds, Cb, US) of
                 {ok, NewTree, NewUS} ->
-                    apply_view_update(NewUS, State#iso_state{tree = NewTree}, NewTree);
+                    case _Where of
+                        main ->
+                            apply_view_update(NewUS, State#iso_state{tree = NewTree}, NewTree);
+                        modal ->
+                            NewState = set_active_tree(modal,
+                                                       State#iso_state{user_state = NewUS},
+                                                       NewTree),
+                            {noreply, render_diff(NewState)}
+                    end;
                 unhandled ->
                     case Dir of
                         up ->
                             NewChild = iso_focus:prev_focus(ChildIds, Child),
-                            NewState0 = State#iso_state{focused_child = NewChild},
+                            NewState0 = set_active_child(_Where, State, NewChild),
                             NewState = update_cursor_timer(NewState0),
                             FinalState = render_diff(NewState),
                             {noreply, FinalState};
                         down ->
                             NewChild = iso_focus:next_focus(ChildIds, Child),
-                            NewState0 = State#iso_state{focused_child = NewChild},
+                            NewState0 = set_active_child(_Where, State, NewChild),
                             NewState = update_cursor_timer(NewState0),
                             FinalState = render_diff(NewState),
                             {noreply, FinalState};
@@ -564,11 +704,24 @@ handle_arrow(Dir, State = #iso_state{focused_container = Container, focused_chil
             %% Container is a navigable element (table, list, tree, scroll)
             case iso_engine:navigate_element(Dir, Container, Tree, Bounds, Cb, US) of
                 {ok, NewTree, NewUS} ->
-                    apply_view_update(NewUS, State#iso_state{tree = NewTree}, NewTree);
+                    case _Where of
+                        main ->
+                            apply_view_update(NewUS, State#iso_state{tree = NewTree}, NewTree);
+                        modal ->
+                            NewState = set_active_tree(modal,
+                                                       State#iso_state{user_state = NewUS},
+                                                       NewTree),
+                            {noreply, render_diff(NewState)}
+                    end;
                 unhandled ->
                     {noreply, State}
             end
     end.
+
+navigate_modal_to_child(State, NewChild) ->
+    NewState0 = set_active_child(modal, State, NewChild),
+    NewState = update_cursor_timer(NewState0),
+    {noreply, render_diff(NewState)}.
 
 handle_page(Dir, State = #iso_state{focused_container = Container, focused_child = Child,
                                     tree = Tree, bounds = Bounds,
@@ -619,35 +772,135 @@ handle_page(Dir, State = #iso_state{focused_container = Container, focused_child
 %% Internal: Text input handling
 %%====================================================================
 
-handle_char_input(Char, State = #iso_state{focused_child = FocusedChild, tree = Tree,
-                                            callback = Cb, user_state = US}) ->
-    case iso_engine:apply_char_input(Tree, FocusedChild, Char) of
+handle_char_input(Char, State = #iso_state{callback = Cb, user_state = US}) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    InputId = focused_input_id(State),
+    case iso_engine:apply_char_input(Tree, InputId, Char) of
         {ok, NewTree, Id, NewValue} ->
             NewUS = case call_handler(Cb, {input, Id, NewValue}, US) of
                 {noreply, S} -> S;
                 _ -> US
             end,
-            NewState = State#iso_state{tree = NewTree, user_state = NewUS},
+            NewState = set_active_tree(Where, State#iso_state{user_state = NewUS}, NewTree),
             FinalState = render_diff(NewState),
             {noreply, FinalState};
         false ->
             forward_event({char, Char}, State)
     end.
 
-handle_backspace(State = #iso_state{focused_child = FocusedChild, tree = Tree,
-                                     callback = Cb, user_state = US}) ->
-    case iso_engine:apply_backspace(Tree, FocusedChild) of
+handle_backspace(State = #iso_state{callback = Cb, user_state = US}) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    InputId = focused_input_id(State),
+    case iso_engine:apply_backspace(Tree, InputId) of
         {ok, NewTree, Id, NewValue} ->
             NewUS = case call_handler(Cb, {input, Id, NewValue}, US) of
                 {noreply, S} -> S;
                 _ -> US
             end,
-            NewState = State#iso_state{tree = NewTree, user_state = NewUS},
+            NewState = set_active_tree(Where, State#iso_state{user_state = NewUS}, NewTree),
             FinalState = render_diff(NewState),
             {noreply, FinalState};
         false ->
             {noreply, State}
     end.
+
+handle_delete(State = #iso_state{callback = Cb, user_state = US}) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    InputId = focused_input_id(State),
+    case iso_engine:apply_delete_input(Tree, InputId) of
+        {ok, NewTree, Id, NewValue} ->
+            NewUS = case call_handler(Cb, {input, Id, NewValue}, US) of
+                {noreply, S} -> S;
+                _ -> US
+            end,
+            NewState = set_active_tree(Where, State#iso_state{user_state = NewUS}, NewTree),
+            FinalState = render_diff(NewState),
+            {noreply, FinalState};
+        false ->
+            {noreply, State}
+    end.
+
+handle_input_cursor(Dir, _Select, _State)
+        when Dir =/= left, Dir =/= right, Dir =/= home, Dir =/= 'end' ->
+    unhandled;
+handle_input_cursor(Dir, Select, State) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    case focused_input_id(State) of
+        undefined ->
+            unhandled;
+        InputId ->
+            case iso_engine:move_input_cursor(Tree, InputId, Dir, Select) of
+                {ok, NewTree} ->
+                    render_input_state(Where, NewTree, State);
+                false ->
+                    unhandled
+            end
+    end.
+
+handle_input_select_all(State) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    case focused_input_id(State) of
+        undefined ->
+            unhandled;
+        InputId ->
+            case iso_engine:select_all_input(Tree, InputId) of
+                {ok, NewTree} ->
+                    render_input_state(Where, NewTree, State);
+                false ->
+                    unhandled
+            end
+    end.
+
+handle_input_drag(_Col, _Row, State = #iso_state{modal = Modal}) when Modal =/= undefined ->
+    {noreply, State};
+handle_input_drag(Col, _Row, State = #iso_state{tree = Tree, bounds = Bounds}) ->
+    case focused_input_id(State) of
+        undefined ->
+            {noreply, State};
+        InputId ->
+            case iso_focus:find_element(Tree, InputId) of
+                #input{} = Input ->
+                    case iso_bounds:find_element_bounds(Tree, InputId, Bounds) of
+                        {ok, InputBounds} ->
+                            Pos = input_position_from_col(Input, InputBounds, Col),
+                            case iso_engine:position_input_cursor(Tree, InputId, Pos, true) of
+                                {ok, NewTree} -> render_input_state(main, NewTree, State);
+                                false -> {noreply, State}
+                            end;
+                        not_found ->
+                            {noreply, State}
+                    end;
+                _ ->
+                    {noreply, State}
+            end
+    end.
+
+render_input_state(Where, NewTree, State) ->
+    NewState0 = set_active_tree(Where, State, NewTree),
+    NewState = update_cursor_timer(NewState0),
+    FinalState = render_diff(NewState),
+    {noreply, FinalState}.
+
+focused_input_id(State) ->
+    {Tree, FocusedContainer, FocusedChild, _Ids, _Where} = active_focus(State),
+    case iso_focus:find_element(Tree, FocusedChild) of
+        #input{} ->
+            FocusedChild;
+        _ ->
+            case iso_focus:find_element(Tree, FocusedContainer) of
+                #input{} -> FocusedContainer;
+                _ -> undefined
+            end
+    end.
+
+input_position_from_col(#input{value = Value}, #bounds{x = X}, Col) ->
+    Len = length(input_chars(Value)),
+    min(max(0, Col - X - 2), Len).
+
+input_chars(Value) when is_binary(Value) ->
+    unicode:characters_to_list(Value);
+input_chars(Value) when is_list(Value) ->
+    unicode:characters_to_list(unicode:characters_to_binary(Value)).
 
 
 %%====================================================================
@@ -664,6 +917,12 @@ handle_scroll(Dir, Lines, Col, Row, State = #iso_state{tree = Tree, bounds = Bou
             scroll_table(Dir, Lines, TableId, State);
         {table, TableId} ->
             scroll_table(Dir, Lines, TableId, State);
+        {tree_toggle, TreeId, _NodeId} ->
+            scroll_tree(Dir, Lines, TreeId, State);
+        {tree_node, TreeId, _NodeId} ->
+            scroll_tree(Dir, Lines, TreeId, State);
+        {tree, TreeId} ->
+            scroll_tree(Dir, Lines, TreeId, State);
         _ ->
             case iso_engine:find_scroll_at(Tree, Col, Row, Bounds) of
                 {ok, ScrollId} ->
@@ -701,6 +960,17 @@ scroll_table(Dir, Lines, TableId, State = #iso_state{tree = Tree, bounds = Bound
             {noreply, State}
     end.
 
+scroll_tree(Dir, Lines, TreeId, State = #iso_state{tree = Tree, bounds = Bounds,
+                                                   user_state = US}) ->
+    case iso_focus:find_element(Tree, TreeId) of
+        #tree{} = TreeEl ->
+            NewTreeEl = iso_engine:scroll_tree(Dir, Lines, TreeEl, Tree, Bounds),
+            NewTree = iso_tree:update(Tree, TreeId, NewTreeEl),
+            apply_view_update(US, State#iso_state{tree = NewTree}, NewTree);
+        _ ->
+            {noreply, State}
+    end.
+
 scroll_container(Dir, Lines, ScrollId, State = #iso_state{tree = Tree, bounds = Bounds}) ->
     case iso_focus:find_element(Tree, ScrollId) of
         #scroll{} = Scroll ->
@@ -721,6 +991,8 @@ scroll_focused(Dir, Lines, State = #iso_state{tree = Tree,
             scroll_list(Dir, Lines, Id, State);
         {table, Id} ->
             scroll_table(Dir, Lines, Id, State);
+        {tree, Id} ->
+            scroll_tree(Dir, Lines, Id, State);
         {scroll, Id} ->
             scroll_container(Dir, Lines, Id, State);
         undefined ->
@@ -770,10 +1042,30 @@ handle_mouse_click(Col, Row, State = #iso_state{tree = Tree, bounds = Bounds,
         {input, InputId} ->
             %% Find which container owns this input
             Container = iso_engine:focus_container_for(Tree, InputId),
-            NewState0 = State#iso_state{focused_container = Container, focused_child = InputId},
-            NewState = update_cursor_timer(NewState0),
-            FinalState = render_diff(NewState),
-            {noreply, FinalState};
+            case iso_focus:find_element(Tree, InputId) of
+                #input{} = Input ->
+                    case iso_bounds:find_element_bounds(Tree, InputId, Bounds) of
+                        {ok, InputBounds} ->
+                            Pos = input_position_from_col(Input, InputBounds, Col),
+                            case iso_engine:start_input_selection(Tree, InputId, Pos) of
+                                {ok, NewTree} ->
+                                    NewState0 = State#iso_state{
+                                        tree = NewTree,
+                                        focused_container = Container,
+                                        focused_child = InputId
+                                    },
+                                    NewState = update_cursor_timer(NewState0),
+                                    FinalState = render_diff(NewState),
+                                    {noreply, FinalState};
+                                false ->
+                                    {noreply, State}
+                            end;
+                        not_found ->
+                            {noreply, State}
+                    end;
+                _ ->
+                    {noreply, State}
+            end;
         {table_header, TableId, ColumnId} ->
             case iso_focus:find_element(Tree, TableId) of
                 #table{} = Table ->
@@ -795,7 +1087,7 @@ handle_mouse_click(Col, Row, State = #iso_state{tree = Tree, bounds = Bounds,
                                 {handled, {noreply, NewUS}, _} ->
                                     do_update(fun(_) -> NewUS end, FocusedState);
                                 {handled, {modal, Modal, NewUS}, _} ->
-                                    NewState = FocusedState#iso_state{user_state = NewUS, modal = Modal},
+                                    NewState = activate_modal(FocusedState#iso_state{user_state = NewUS}, Modal),
                                     FinalState = render_diff(NewState),
                                     {noreply, FinalState};
                                 {handled, {switch, NewModule, Args}, _} ->
@@ -915,7 +1207,7 @@ handle_tree_activate(TreeId, NodeId, Cb, US, State, MergeFromTree) ->
         {handled, {noreply, NewUS}, _} ->
             apply_view_update(NewUS, State, MergeFromTree);
         {handled, {modal, Modal, NewUS}, _} ->
-            NewState = State#iso_state{user_state = NewUS, modal = Modal},
+            NewState = activate_modal(State#iso_state{user_state = NewUS}, Modal),
             FinalState = render_diff(NewState),
             {noreply, FinalState};
         {handled, {switch, NewModule, Args}, _} ->
@@ -1129,6 +1421,7 @@ do_switch(NewModule, Args, State) ->
                 focused_child = NewChild,
                 container_ids = ContainerIds,
                 modal = undefined,
+                modal_focus = undefined,
                 debug_event = undefined,
                 fullscreen = undefined,
                 prev_screen = undefined  %% Reset screen buffer on switch
@@ -1182,6 +1475,7 @@ do_push(NewModule, Args, State = #iso_state{
                 focused_child = NewChild,
                 container_ids = ContainerIds,
                 modal = undefined,
+                modal_focus = undefined,
                 debug_event = undefined,
                 fullscreen = undefined,
                 nav_stack = NewStack,
@@ -1236,6 +1530,7 @@ do_pop(State = #iso_state{nav_stack = [Entry | Rest]}) ->
         focused_child = NewFCh,
         container_ids = ContainerIds,
         modal = undefined,
+        modal_focus = undefined,
         debug_event = undefined,
         fullscreen = undefined,
         nav_stack = Rest,
@@ -1272,6 +1567,10 @@ forward_event(Event, State = #iso_state{callback = Cb, user_state = US}, MergeFr
         {push, NewModule, Args} -> do_push(NewModule, Args, State);
         {push, NewModule, Args, NewUS} -> do_push(NewModule, Args, State#iso_state{user_state = NewUS});
         pop -> do_pop(State);
+        {modal, Modal, NewUS} ->
+            %% Apply pending tree updates (if any), set modal, render.
+            Rebuilt = rebuild_view_state(NewUS, StateWithDebug, MergeFromTree),
+            {noreply, render_diff(activate_modal(Rebuilt, Modal))};
         {stop, Reason, _NewUS} -> {stop, Reason, StateWithDebug}
     end.
 
@@ -1311,7 +1610,7 @@ render_tree(Tree, Bounds, FocusedContainer, FocusedChild) ->
 %% Also handles lifecycle callbacks (on_mount/on_unmount).
 render_diff(State = #iso_state{tree = Tree, bounds = Bounds,
                                focused_container = Container, focused_child = Child,
-                               modal = Modal,
+                               modal = Modal, modal_focus = MF,
                                prev_screen = PrevScreen,
                                mounted_ids = OldMounted,
                                cursor_visible = CursorVisible}) ->
@@ -1331,13 +1630,19 @@ render_diff(State = #iso_state{tree = Tree, bounds = Bounds,
     %% Render options including cursor visibility for blinking cursor support
     RenderOpts = #{cursor_visible => CursorVisible},
 
-    %% Generate ANSI output for current frame
+    %% Generate ANSI output for current frame. When a modal is active,
+    %% focus indicators are driven by the modal's own focus tracking so
+    %% buttons/inputs inside the modal can render their focused state.
     AnsiOutput = case Modal of
         undefined ->
             iso_render:render_two_level(Tree, Bounds, Container, Child, RenderOpts);
         _ ->
+            {ModalC, ModalCh} = case MF of
+                #modal_focus{container = MC, child = MCh} -> {MC, MCh};
+                undefined -> {undefined, undefined}
+            end,
             [iso_render:render_dimmed(Tree, Bounds, Child),
-             iso_render:render_two_level(Modal, Bounds, undefined, undefined, RenderOpts)]
+             iso_render:render_two_level(Modal, Bounds, ModalC, ModalCh, RenderOpts)]
     end,
     case iso_unicode:contains_wide(AnsiOutput) of
         true ->
@@ -1516,8 +1821,8 @@ get_children(_) -> [].
 %% @doc Update cursor blink timer based on whether the focused element is an input.
 %% Starts timer when focusing an input, stops when leaving input.
 -spec update_cursor_timer(#iso_state{}) -> #iso_state{}.
-update_cursor_timer(State = #iso_state{tree = Tree, focused_child = FocusedChild,
-                                        cursor_timer = OldTimer}) ->
+update_cursor_timer(State = #iso_state{cursor_timer = OldTimer}) ->
+    {Tree, _FC, FocusedChild, _Ids, _Where} = active_focus(State),
     FocusedElement = iso_focus:find_element(Tree, FocusedChild),
     IsInput = is_record(FocusedElement, input),
     case {IsInput, OldTimer} of

@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Table Element
+%%% @doc NitUI Table Element
 %%%
 %%% Renders a table with columns, rows, selection, and scrolling.
 %%% @end

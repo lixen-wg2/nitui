@@ -11,7 +11,7 @@
 -module(iso_focus_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 %%====================================================================
 %% next_focus tests

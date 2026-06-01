@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc TTY owner process for Isotope.
+%%% @doc TTY owner process for NitUI.
 %%%
 %%% Manages the terminal state using OTP 28's prim_tty module.
 %%% Responsibilities:
@@ -36,9 +36,9 @@
 -define(SHOW_CURSOR, <<"\e[?25h">>).
 -define(RESET_ATTRS, <<"\e[0m">>).
 -define(CLEAR_SCREEN, <<"\e[2J\e[H">>).
-%% Mouse tracking (SGR extended mode for better coordinates)
--define(ENABLE_MOUSE, <<"\e[?1000h\e[?1006h">>).
--define(DISABLE_MOUSE, <<"\e[?1006l\e[?1000l">>).
+%% Mouse tracking (button-event mode + SGR extended coordinates)
+-define(ENABLE_MOUSE, <<"\e[?1002h\e[?1006h">>).
+-define(DISABLE_MOUSE, <<"\e[?1006l\e[?1002l">>).
 
 %%====================================================================
 %% API

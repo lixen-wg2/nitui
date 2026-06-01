@@ -7,13 +7,13 @@
 
 -behaviour(iso_callback).
 
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
-%% Isotope callbacks
+%% NitUI callbacks
 -export([init/1, view/1, handle_event/2]).
 
 %%====================================================================
-%% Isotope Callbacks
+%% NitUI Callbacks
 %%====================================================================
 
 init(#{pid_str := PidStr, info := Info}) ->

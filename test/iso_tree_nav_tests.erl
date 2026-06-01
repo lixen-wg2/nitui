@@ -5,7 +5,7 @@
 -module(iso_tree_nav_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 test_bounds() ->
     #bounds{x = 0, y = 0, width = 80, height = 24}.
@@ -100,3 +100,15 @@ navigate_page_down_moves_by_visible_height_test() ->
     Navigated = iso_tree_nav:navigate(down, 2, 2, Tree),
     ?assertEqual(node3, Navigated#tree.selected),
     ?assertEqual(1, Navigated#tree.offset).
+
+scroll_down_moves_view_without_changing_selection_test() ->
+    Tree = (simple_tree())#tree{selected = node1, offset = 0},
+    Scrolled = iso_tree_nav:scroll(down, 1, 2, Tree),
+    ?assertEqual(node1, Scrolled#tree.selected),
+    ?assertEqual(1, Scrolled#tree.offset).
+
+scroll_clamps_offset_without_changing_selection_test() ->
+    Tree = (simple_tree())#tree{selected = node1, offset = 1},
+    Scrolled = iso_tree_nav:scroll(down, 10, 2, Tree),
+    ?assertEqual(node1, Scrolled#tree.selected),
+    ?assertEqual(1, Scrolled#tree.offset).

@@ -1,11 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Input driver for Isotope.
+%%% @doc Input driver for NitUI.
 %%%
 %%% Receives raw input from iso_tty and parses ANSI escape sequences into
 %%% clean event messages. Forwards parsed events to iso_server.
 %%%
 %%% Parsed events:
 %%% - {key, up | down | left | right | home | 'end' | page_up | page_down}
+%%% - {key, {shift, left | right | home | 'end'}}
 %%% - {char, Char} - Regular character
 %%% - {ctrl, Char} - Control key (e.g., {ctrl, $c})
 %%% - {mouse, scroll, up | down | left | right, Col, Row}
@@ -98,6 +99,10 @@ parse_input(<<>>, Acc) ->
     {lists:reverse(Acc), <<>>};
 
 %% Escape sequences
+parse_input(<<"\e[1;2C", Rest/binary>>, Acc) -> parse_input(Rest, [{key, {shift, right}} | Acc]);
+parse_input(<<"\e[1;2D", Rest/binary>>, Acc) -> parse_input(Rest, [{key, {shift, left}} | Acc]);
+parse_input(<<"\e[1;2H", Rest/binary>>, Acc) -> parse_input(Rest, [{key, {shift, home}} | Acc]);
+parse_input(<<"\e[1;2F", Rest/binary>>, Acc) -> parse_input(Rest, [{key, {shift, 'end'}} | Acc]);
 parse_input(<<"\e[A", Rest/binary>>, Acc) -> parse_input(Rest, [{key, up} | Acc]);
 parse_input(<<"\e[B", Rest/binary>>, Acc) -> parse_input(Rest, [{key, down} | Acc]);
 parse_input(<<"\e[C", Rest/binary>>, Acc) -> parse_input(Rest, [{key, right} | Acc]);

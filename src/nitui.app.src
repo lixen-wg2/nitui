@@ -1,8 +1,8 @@
-{application, isotope, [
-    {description, "Isotope TUI Framework"},
+{application, nitui, [
+    {description, "NitUI TUI Framework"},
     {vsn, "1.0.0"},
     {registered, [iso_sup, iso_tty, iso_input]},
-    {mod, {isotope_app, []}},
+    {mod, {nitui_app, []}},
     {applications, [
         kernel,
         stdlib

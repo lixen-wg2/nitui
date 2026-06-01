@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo application for Isotope TUI framework.
+%%% @doc Demo application for NitUI TUI framework.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(demo_app).

@@ -1,4 +1,4 @@
-# Isotope
+# NitUI
 
 A Nitrogen-inspired terminal UI framework for Erlang/OTP.
 
@@ -26,7 +26,7 @@ cd examples
 
 - [Documentation](docs/README.md)
 - [Demo guide](examples/README.md)
-- [Design notes](isotope.md)
+- [Design notes](nitui.md)
 
 ## Requirements
 

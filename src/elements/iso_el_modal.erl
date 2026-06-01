@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Modal Element
+%%% @doc NitUI Modal Element
 %%%
 %%% Renders a centered overlay modal with border and title.
 %%% @end

@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Callback Behaviour
+%%% @doc NitUI Callback Behaviour
 %%%
-%%% Defines the behaviour for Isotope UI callback modules.
+%%% Defines the behaviour for NitUI UI callback modules.
 %%% Callback modules implement this behaviour to create TUI applications.
 %%%
 %%% Required callbacks:
@@ -110,7 +110,7 @@
 %% view/1 MUST be a pure function of State. On the initial render
 %% (after init/1 and after a push) the framework invokes view/1
 %% twice: the first pass seeds the tree context used by
-%% isotope:selected_item/1, and the second pass produces the tree
+%% nitui:selected_item/1, and the second pass produces the tree
 %% that is actually rendered. Any side effects in view/1 will fire
 %% twice on those entry points.
 -callback view(State :: state()) -> element().

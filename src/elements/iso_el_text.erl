@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Text Element
+%%% @doc NitUI Text Element
 %%%
 %%% Renders a simple text string.
 %%% @end

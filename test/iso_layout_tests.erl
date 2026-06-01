@@ -10,7 +10,7 @@
 -module(iso_layout_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 %%====================================================================
 %% Test helpers

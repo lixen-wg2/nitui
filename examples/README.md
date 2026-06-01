@@ -1,6 +1,6 @@
 # Demo
 
-The demo application lives in this directory and is the fastest way to try Isotope.
+The demo application lives in this directory and is the fastest way to try NitUI.
 
 ## Run it
 

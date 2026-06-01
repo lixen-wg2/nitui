@@ -5,7 +5,7 @@
 -module(iso_tree_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 merge_list_preserves_offset_test() ->
     Old = #list{id = my_list, selected = 3, offset = 5, items = [<<"a">>, <<"b">>]},
@@ -13,6 +13,15 @@ merge_list_preserves_offset_test() ->
     Merged = iso_tree:merge_state(Old, New),
     ?assertEqual(3, Merged#list.selected),
     ?assertEqual(5, Merged#list.offset).
+
+merge_input_preserves_selection_test() ->
+    Old = #input{id = search, value = <<"abcdef">>, cursor_pos = 4,
+                 selection_anchor = 1},
+    New = #input{id = search, value = <<>>, cursor_pos = 0},
+    Merged = iso_tree:merge_state(Old, New),
+    ?assertEqual(<<"abcdef">>, Merged#input.value),
+    ?assertEqual(4, Merged#input.cursor_pos),
+    ?assertEqual(1, Merged#input.selection_anchor).
 
 merge_sortable_table_preserves_selection_without_active_sort_test() ->
     Old = #table{

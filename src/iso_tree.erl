@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Tree Utilities - Update elements in the UI tree.
+%%% @doc NitUI Tree Utilities - Update elements in the UI tree.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(iso_tree).
@@ -81,10 +81,12 @@ merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes}
     New#tree{selected = OldSel, offset = OldOff,
              nodes = merge_tree_nodes(OldNodes, New#tree.nodes)};
 
-%% Inputs - preserve value and cursor_pos
-merge_state(#input{id = Id, value = OldVal, cursor_pos = OldPos},
+%% Inputs - preserve value, cursor position, and active selection
+merge_state(#input{id = Id, value = OldVal, cursor_pos = OldPos,
+                   selection_anchor = OldAnchor},
             #input{id = Id} = New) ->
-    New#input{value = OldVal, cursor_pos = OldPos};
+    New#input{value = OldVal, cursor_pos = OldPos,
+              selection_anchor = OldAnchor};
 
 %% Tabs - preserve active_tab
 merge_state(#tabs{id = Id, active_tab = OldActive},

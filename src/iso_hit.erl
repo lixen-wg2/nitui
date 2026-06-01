@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Hit Testing - Find elements at screen coordinates.
+%%% @doc NitUI Hit Testing - Find elements at screen coordinates.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(iso_hit).

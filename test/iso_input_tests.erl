@@ -68,6 +68,12 @@ right_arrow_test() ->
 left_arrow_test() ->
     ?assertEqual([{key, left}], send_and_receive(<<"\e[D">>)).
 
+shift_right_arrow_test() ->
+    ?assertEqual([{key, {shift, right}}], send_and_receive(<<"\e[1;2C">>)).
+
+shift_left_arrow_test() ->
+    ?assertEqual([{key, {shift, left}}], send_and_receive(<<"\e[1;2D">>)).
+
 %%====================================================================
 %% Navigation key tests
 %%====================================================================
@@ -77,6 +83,12 @@ home_key_test() ->
 
 end_key_test() ->
     ?assertEqual([{key, 'end'}], send_and_receive(<<"\e[F">>)).
+
+shift_home_key_test() ->
+    ?assertEqual([{key, {shift, home}}], send_and_receive(<<"\e[1;2H">>)).
+
+shift_end_key_test() ->
+    ?assertEqual([{key, {shift, 'end'}}], send_and_receive(<<"\e[1;2F">>)).
 
 page_up_test() ->
     ?assertEqual([{key, page_up}], send_and_receive(<<"\e[5~">>)).

@@ -5,7 +5,7 @@
 -module(iso_bounds_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 find_table_bounds_inside_tabs_test() ->
     Tree = #tabs{

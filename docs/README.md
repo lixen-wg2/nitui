@@ -2,7 +2,7 @@
 
 ## Read next
 
-- [Vision and design notes](../isotope.md)
+- [Vision and design notes](../nitui.md)
 - [Demo guide](../examples/README.md)
 
 ## Project structure

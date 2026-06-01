@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope application callback module.
+%%% @doc NitUI application callback module.
 %%% @end
 %%%-------------------------------------------------------------------
--module(isotope_app).
+-module(nitui_app).
 
 -behaviour(application).
 
@@ -12,7 +12,7 @@
 -export([filter_sigwinch/2]).
 
 %%--------------------------------------------------------------------
-%% @doc Start the Isotope application.
+%% @doc Start the NitUI application.
 %% @end
 %%--------------------------------------------------------------------
 -spec start(application:start_type(), term()) -> {ok, pid()} | {error, term()}.
@@ -24,7 +24,7 @@ start(_StartType, _StartArgs) ->
     iso_sup:start_link().
 
 %%--------------------------------------------------------------------
-%% @doc Stop the Isotope application.
+%% @doc Stop the NitUI application.
 %% @end
 %%--------------------------------------------------------------------
 -spec stop(term()) -> ok.

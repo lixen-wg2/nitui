@@ -7,7 +7,7 @@
 -include("iso_elements.hrl").
 
 -export([flatten_visible/1, visible_nodes/2, resolved_height/2, row_node/3]).
--export([navigate/3, navigate/4, toggle/3, toggle_selected/2, select/3]).
+-export([navigate/3, navigate/4, scroll/4, toggle/3, toggle_selected/2, select/3]).
 
 %%====================================================================
 %% Public API
@@ -68,6 +68,19 @@ navigate(Dir, Lines, VisibleHeight, Tree = #tree{selected = Selected}) ->
                 Tree#tree{selected = lists:nth(NewIdx, FlatIds)},
                 max(1, VisibleHeight))
     end.
+
+-spec scroll(up | down, pos_integer(), pos_integer(), #tree{}) -> #tree{}.
+scroll(_Dir, _Lines, _VisibleHeight, #tree{nodes = []} = Tree) ->
+    Tree#tree{offset = 0};
+scroll(Dir, Lines, VisibleHeight, Tree = #tree{nodes = Nodes, offset = Offset}) ->
+    NumNodes = count_visible_nodes(Nodes),
+    SafeLines = max(1, Lines),
+    SafeVisibleHeight = max(1, VisibleHeight),
+    NewOffset = case Dir of
+        up -> Offset - SafeLines;
+        down -> Offset + SafeLines
+    end,
+    Tree#tree{offset = clamp_offset(NewOffset, NumNodes, SafeVisibleHeight)}.
 
 -spec toggle(left | right, #tree{}, #bounds{}) -> #tree{}.
 toggle(_Dir, #tree{nodes = []} = Tree, _Bounds) ->

@@ -1,4 +1,4 @@
-# Isotope: Design Notes
+# NitUI: Design Notes
 
 **Architecture:** Retained mode, event-driven (Nitrogen-inspired).
 **Runtime:** Erlang/OTP 27+ `prim_tty` (raw mode).
@@ -7,7 +7,7 @@
 
 ## Architecture Overview
 
-Isotope follows a retained-mode architecture where the application declares a UI tree
+NitUI follows a retained-mode architecture where the application declares a UI tree
 and the framework handles layout, rendering, input dispatch, and focus management.
 
 ```mermaid
@@ -105,7 +105,7 @@ All elements share a common base (id, position, size, style, visibility).
 
 ## Callback Interface
 
-An Isotope application implements a callback module:
+A NitUI application implements a callback module:
 
 ```erlang
 -module(my_app).
@@ -152,12 +152,12 @@ re-renders whenever the returned state differs from the previous one. Return
 
 | Function | Description |
 |----------|-------------|
-| `isotope:selected_item(ElementId)` | During `view/1`, return the selected item for a list or for the first list inside a container |
-| `isotope:selected_item(Items, Index)` | Return the selected item, the first item for an invalid selection, or `undefined` for an empty list |
-| `isotope:selected_item(Items, Index, Default)` | Return the selected item, the first item for an invalid selection, or `Default` for an empty list |
+| `nitui:selected_item(ElementId)` | During `view/1`, return the selected item for a list or for the first list inside a container |
+| `nitui:selected_item(Items, Index)` | Return the selected item, the first item for an invalid selection, or `undefined` for an empty list |
+| `nitui:selected_item(Items, Index, Default)` | Return the selected item, the first item for an invalid selection, or `Default` for an empty list |
 
 > **Note:** `view/1` must be a pure function of state. On the initial render after
 > `init/1` and after a `push`, the framework calls `view/1` twice — the first
-> pass seeds the tree context used by `isotope:selected_item/1`, the second pass
+> pass seeds the tree context used by `nitui:selected_item/1`, the second pass
 > produces the rendered tree. Any side effects placed in `view/1` will fire twice
 > on those entry points.

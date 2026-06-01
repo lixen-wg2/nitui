@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope HBox Element
+%%% @doc NitUI HBox Element
 %%%
 %%% Renders children horizontally with optional spacing.
 %%% @end

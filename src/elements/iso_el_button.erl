@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Button Element
+%%% @doc NitUI Button Element
 %%%
 %%% Renders a clickable button with focus indication.
 %%% @end

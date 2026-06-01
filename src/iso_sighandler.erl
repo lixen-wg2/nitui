@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Signal handler for Isotope.
+%%% @doc Signal handler for NitUI.
 %%%
 %%% This is a gen_event handler that registers with erl_signal_server
 %%% to receive Unix signals. When SIGWINCH (terminal resize) is received,

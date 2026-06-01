@@ -6,7 +6,7 @@
 
 -behaviour(iso_callback).
 
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 

@@ -6,7 +6,7 @@
 
 -behaviour(iso_callback).
 
--include_lib("isotope/include/iso_elements.hrl").
+-include_lib("nitui/include/iso_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -33,7 +33,7 @@ view(State) ->
         selected_idx := SelectedIdx,
         log_wrap := LogWrap
     } = State,
-    ActiveItem = isotope:selected_item(menu_box),
+    ActiveItem = nitui:selected_item(menu_box),
     LogEntries = logs_for(ActiveItem),
     LogTitle = log_title(ActiveItem, LogWrap),
     #vbox{children = [

@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Isotope Tabs Element
+%%% @doc NitUI Tabs Element
 %%%
 %%% Renders a tabbed container with tab bar and content area.
 %%% @end
