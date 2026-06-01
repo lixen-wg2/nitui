@@ -10,7 +10,7 @@
 
 -behaviour(iso_callback).
 
--include_lib("nitui/include/iso_elements.hrl").
+-include("iso_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 -export([generate_rows/2]).  %% Exported for row_provider callback

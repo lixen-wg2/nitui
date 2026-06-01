@@ -11,7 +11,7 @@
 
 -behaviour(iso_callback).
 
--include_lib("nitui/include/iso_elements.hrl").
+-include("iso_elements.hrl").
 
 %% NitUI callbacks
 -export([init/1, view/1, handle_event/2]).
