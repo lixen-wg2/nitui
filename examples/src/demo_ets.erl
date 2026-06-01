@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_ets).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -21,8 +21,8 @@ view(_State) ->
         #header{
             title = "ETS Tables",
             subtitle = atom_to_list(node()),
-            items = [{"Tables", iso_format:commas(length(Snapshots))},
-                     {"Memory", iso_format:bytes(EtsBytes)}]
+            items = [{"Tables", nit_format:commas(length(Snapshots))},
+                     {"Memory", nit_format:bytes(EtsBytes)}]
         },
         #text{content = "ETS share of BEAM memory:", style = #{bold => true}},
         #hbox{spacing = 2, children = [
@@ -30,8 +30,8 @@ view(_State) ->
                           width = 40, show_percent = true},
             #text{content = lists:flatten(
                               io_lib:format("(~ts / ~ts)",
-                                            [iso_format:bytes(EtsBytes),
-                                             iso_format:bytes(TotalBytes)]))}
+                                            [nit_format:bytes(EtsBytes),
+                                             nit_format:bytes(TotalBytes)]))}
         ]},
         #stat_row{items = stats(Snapshots)},
         #table{
@@ -59,7 +59,7 @@ view(_State) ->
     ]}.
 
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {["h", escape], fun(_) -> {switch, demo_home, #{}} end},
         {"q", {stop, normal}}
     ]) of
@@ -83,9 +83,9 @@ table_snapshot(Tab) ->
 stats(Snapshots) ->
     {Named, Anon, Objects} =
         lists:foldl(fun count/2, {0, 0, 0}, Snapshots),
-    [{"Named",   iso_format:commas(Named)},
-     {"Unnamed", iso_format:commas(Anon)},
-     {"Objects", iso_format:commas(Objects)}].
+    [{"Named",   nit_format:commas(Named)},
+     {"Unnamed", nit_format:commas(Anon)},
+     {"Objects", nit_format:commas(Objects)}].
 
 count(S, {N, A, O}) ->
     Size = maps:get(size, S, 0),
@@ -98,8 +98,8 @@ table_row(S) ->
     [table_name(S),
      atom_to_list(maps:get(type, S, set)),
      atom_to_list(maps:get(protection, S, public)),
-     iso_format:commas(maps:get(size, S, 0)),
-     iso_format:bytes(memory_bytes(S)),
+     nit_format:commas(maps:get(size, S, 0)),
+     nit_format:bytes(memory_bytes(S)),
      owner_label(maps:get(owner, S, undefined))].
 
 table_name(S) ->

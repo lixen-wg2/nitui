@@ -19,13 +19,13 @@ flowchart LR
     end
 
     subgraph Framework["Framework"]
-        Server["iso_server (gen_server)"]
-        Engine["iso_engine (shared nav)"]
-        Layout["iso_layout (flexbox)"]
-        Render["iso_render (tree to cells)"]
-        Screen["iso_screen (diff buffer)"]
-        Tty["iso_tty (prim_tty I/O)"]
-        Input["iso_input (ANSI parser)"]
+        Server["nit_server (gen_server)"]
+        Engine["nit_engine (shared nav)"]
+        Layout["nit_layout (flexbox)"]
+        Render["nit_render (tree to cells)"]
+        Screen["nit_screen (diff buffer)"]
+        Tty["nit_tty (prim_tty I/O)"]
+        Input["nit_input (ANSI parser)"]
     end
 
     Init --> Server
@@ -42,12 +42,12 @@ flowchart LR
 
 ### Event cycle
 
-1. `iso_tty` reads raw bytes from the terminal via `prim_tty`
-2. `iso_input` parses ANSI sequences into events (`{key, up}`, `{mouse, ...}`, etc.)
-3. `iso_server` dispatches the event — navigation is handled internally,
+1. `nit_tty` reads raw bytes from the terminal via `prim_tty`
+2. `nit_input` parses ANSI sequences into events (`{key, up}`, `{mouse, ...}`, etc.)
+3. `nit_server` dispatches the event — navigation is handled internally,
    application events are forwarded to the callback's `handle_event/2`
 4. The callback returns a response (`noreply`, `update_state`, `push_view`, etc.)
-5. `iso_server` rebuilds the view tree, runs layout, diffs the screen, and writes changes
+5. `nit_server` rebuilds the view tree, runs layout, diffs the screen, and writes changes
 
 ### Focus model
 
@@ -92,7 +92,7 @@ All elements share a common base (id, position, size, style, visibility).
 - `width` / `height` accept `auto` (fit content), `fill` (consume remaining
   space), or a positive integer.
 - Flexible elements report their height as `{flex, Min}` where `Min` is the
-  minimum cells required. `iso_layout` resolves these against available space
+  minimum cells required. `nit_layout` resolves these against available space
   before rendering; summing raw heights yourself will crash on a flex child.
 - `#box{}` with `border = none` passes bounds through to its children
   unchanged. With any other border value, children are rendered (and
@@ -109,7 +109,7 @@ A NitUI application implements a callback module:
 
 ```erlang
 -module(my_app).
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
 init(_Args) ->
     {ok, #my_state{}}.

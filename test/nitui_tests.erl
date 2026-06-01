@@ -5,7 +5,7 @@
 -module(nitui_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([view/1]).
 
@@ -28,13 +28,13 @@ selected_item_with_default_uses_default_for_empty_list_test() ->
 
 selected_item_reads_list_by_id_from_view_context_test() ->
     Tree = #list{id = menu_list, items = ["Dashboard", "Processes"], selected = 1},
-    ?assertEqual("Processes", iso_engine:call_view(?MODULE, menu_list, Tree)).
+    ?assertEqual("Processes", nit_engine:call_view(?MODULE, menu_list, Tree)).
 
 selected_item_reads_nested_list_by_container_id_from_view_context_test() ->
     Tree = #box{id = menu_box, children = [
         #list{id = menu_list, items = ["Dashboard", "Processes"], selected = 1}
     ]},
-    ?assertEqual("Processes", iso_engine:call_view(?MODULE, menu_box, Tree)).
+    ?assertEqual("Processes", nit_engine:call_view(?MODULE, menu_box, Tree)).
 
 selected_item_without_view_context_is_undefined_test() ->
     ?assertEqual(undefined, nitui:selected_item(menu_box)).

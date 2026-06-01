@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_tree).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -43,7 +43,7 @@ handle_event({tree_activate, sup_tree, Pid}, State) when is_pid(Pid) ->
 handle_event({tree_activate, sup_tree, _NodeId}, State) ->
     {noreply, State};
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {["h", escape], fun(_) -> {switch, demo_home, #{}} end},
         {"q", {stop, normal}}
     ]) of

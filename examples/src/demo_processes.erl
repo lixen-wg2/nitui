@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_processes).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -19,7 +19,7 @@ view(_State) ->
         #header{
             title = "Processes",
             subtitle = atom_to_list(node()),
-            items = [{"Total", iso_format:commas(length(Snapshots))}]
+            items = [{"Total", nit_format:commas(length(Snapshots))}]
         },
         #stat_row{items = stats(Snapshots)},
         #table{
@@ -50,7 +50,7 @@ handle_event({table_activate, proc_table, _RowIdx, [Pid | _]}, State)
   when is_pid(Pid) ->
     {push, process_detail, #{pid => Pid}, State};
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {["h", escape], fun(_) -> {switch, demo_home, #{}} end},
         {"q", {stop, normal}}
     ]) of
@@ -75,9 +75,9 @@ process_snapshot(Pid) ->
 
 stats(Snapshots) ->
     {Running, Waiting, MsgQ} = lists:foldl(fun count/2, {0, 0, 0}, Snapshots),
-    [{"Running",    iso_format:commas(Running)},
-     {"Waiting",    iso_format:commas(Waiting)},
-     {"MsgQ Total", iso_format:commas(MsgQ)}].
+    [{"Running",    nit_format:commas(Running)},
+     {"Waiting",    nit_format:commas(Waiting)},
+     {"MsgQ Total", nit_format:commas(MsgQ)}].
 
 count(S, {R, W, M}) ->
     Q = maps:get(message_queue_len, S, 0),
@@ -89,8 +89,8 @@ count(S, {R, W, M}) ->
 process_row(S) ->
     [maps:get(pid, S),
      process_name(S),
-     iso_format:commas(maps:get(reductions, S, 0)),
-     iso_format:bytes(maps:get(memory, S, 0)),
+     nit_format:commas(maps:get(reductions, S, 0)),
+     nit_format:bytes(maps:get(memory, S, 0)),
      maps:get(message_queue_len, S, 0)].
 
 process_name(S) ->

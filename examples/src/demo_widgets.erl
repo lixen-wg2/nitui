@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_widgets).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -108,7 +108,7 @@ handle_event({event, {char, $f}}, State) ->
 handle_event({event, {char, $F}}, State) ->
     {toggle_fullscreen, logs_box, State};
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {"h", fun(_) -> {switch, demo_home, #{}} end},
         {["q", escape], {stop, normal}}
     ]) of

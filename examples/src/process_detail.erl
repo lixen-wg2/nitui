@@ -5,9 +5,9 @@
 %%%-------------------------------------------------------------------
 -module(process_detail).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 %% NitUI callbacks
 -export([init/1, view/1, handle_event/2]).
@@ -88,7 +88,7 @@ get_process_info(Pid) ->
             #{
                 status => format_value(proplists:get_value(status, Info)),
                 registered_name => format_value(proplists:get_value(registered_name, Info)),
-                memory => iso_format:bytes(proplists:get_value(memory, Info)),
+                memory => nit_format:bytes(proplists:get_value(memory, Info)),
                 message_queue_len => format_value(proplists:get_value(message_queue_len, Info)),
                 reductions => format_value(proplists:get_value(reductions, Info)),
                 current_function => format_mfa(proplists:get_value(current_function, Info)),

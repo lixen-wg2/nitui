@@ -20,8 +20,8 @@ start(_StartType, _StartArgs) ->
     %% Filter out "supervisor received unexpected message: sigwinch" warnings.
     %% The BEAM delivers sigwinch to supervisors in the process tree and
     %% OTP supervisors log a warning for any unexpected message.
-    logger:add_primary_filter(iso_sigwinch_filter, {fun filter_sigwinch/2, []}),
-    iso_sup:start_link().
+    logger:add_primary_filter(nit_sigwinch_filter, {fun filter_sigwinch/2, []}),
+    nit_sup:start_link().
 
 %%--------------------------------------------------------------------
 %% @doc Stop the NitUI application.
@@ -29,7 +29,7 @@ start(_StartType, _StartArgs) ->
 %%--------------------------------------------------------------------
 -spec stop(term()) -> ok.
 stop(_State) ->
-    logger:remove_primary_filter(iso_sigwinch_filter),
+    logger:remove_primary_filter(nit_sigwinch_filter),
     ok.
 
 %%====================================================================

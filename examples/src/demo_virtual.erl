@@ -8,9 +8,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_virtual).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 -export([generate_rows/2]).  %% Exported for row_provider callback
@@ -103,7 +103,7 @@ generate_row(Idx) ->
 handle_event({table_select, virtual_table, RowIdx, _RowData}, State) ->
     {noreply, State#{selected_row => RowIdx}};
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {["h", escape], fun(_) -> {switch, demo_home, #{}} end},
         {"q", {stop, normal}}
     ]) of

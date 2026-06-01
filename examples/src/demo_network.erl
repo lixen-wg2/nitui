@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_network).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -80,7 +80,7 @@ view(_State) ->
     ]}.
 
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {["h", escape], fun(_) -> {switch, demo_home, #{}} end},
         {"p", fun(_) -> {switch, demo_processes, #{}} end},
         {"q", {stop, normal}}

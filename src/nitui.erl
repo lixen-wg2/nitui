@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(nitui).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 %% API
 -export([start/0, stop/0]).
@@ -53,7 +53,7 @@ selected_item(ElementId) ->
 %%--------------------------------------------------------------------
 -spec selected_item([Item], non_neg_integer()) -> Item | undefined.
 selected_item(Items, SelectedIdx) ->
-    case iso_engine:list_selected_item(Items, SelectedIdx) of
+    case nit_engine:list_selected_item(Items, SelectedIdx) of
         undefined ->
             case Items of
                 [First | _] -> First;
@@ -77,7 +77,7 @@ selected_item(Items, SelectedIdx, Default) ->
     end.
 
 selected_item_from_tree(Tree, ElementId) ->
-    case iso_focus:find_element(Tree, ElementId) of
+    case nit_focus:find_element(Tree, ElementId) of
         undefined -> undefined;
         Element -> selected_item_from_element(Element)
     end.
@@ -85,7 +85,7 @@ selected_item_from_tree(Tree, ElementId) ->
 selected_item_from_element(#list{items = Items, selected = SelectedIdx}) ->
     selected_item(Items, SelectedIdx);
 selected_item_from_element(Element) ->
-    selected_item_from_children(iso_element:children(Element)).
+    selected_item_from_children(nit_element:children(Element)).
 
 selected_item_from_children([]) ->
     undefined;

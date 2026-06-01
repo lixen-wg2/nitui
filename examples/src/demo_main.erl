@@ -9,9 +9,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_main).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 %% NitUI callbacks
 -export([init/1, view/1, handle_event/2]).
@@ -95,7 +95,7 @@ view(State) ->
     ]}.
 
 handle_event(quit, State) ->
-    %% Just return stop - iso_server:terminate will cleanup and halt
+    %% Just return stop - nit_server:terminate will cleanup and halt
     {stop, normal, State};
 
 handle_event({click, greet_btn, _}, State) ->
@@ -152,7 +152,7 @@ get_process_list() ->
             RegName when is_atom(RegName) -> atom_to_list(RegName)
         end,
         Mem = proplists:get_value(memory, Info, 0),
-        MemStr = iso_format:bytes(Mem),
+        MemStr = nit_format:bytes(Mem),
         [pid_to_list(Pid), Name, MemStr]
     end, lists:sublist(Procs, 20)).  %% Limit to 20 processes
 

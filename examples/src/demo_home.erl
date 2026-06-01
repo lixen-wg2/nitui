@@ -4,9 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(demo_home).
 
--behaviour(iso_callback).
+-behaviour(nit_callback).
 
--include("iso_elements.hrl").
+-include("nit_elements.hrl").
 
 -export([init/1, view/1, handle_event/2]).
 
@@ -49,7 +49,7 @@ view(State) ->
       io_history := IoHist, gc_history := GcHist} = State,
 
     %% Format values
-    UptimeStr = iso_format:duration(Uptime),
+    UptimeStr = nit_format:duration(Uptime),
     TotalMemMB = TotalMem div (1024 * 1024),
     ProcMemMB = ProcMem div (1024 * 1024),
     AtomMemMB = AtomMem div (1024 * 1024),
@@ -68,10 +68,10 @@ view(State) ->
         %% Stats row
         #stat_row{
             items = [
-                {"Procs", iso_format:commas(Procs)},
-                {"Ports", iso_format:commas(Ports)},
-                {"ETS", iso_format:commas(Ets)},
-                {"Atoms", iso_format:commas(Atoms)}
+                {"Procs", nit_format:commas(Procs)},
+                {"Ports", nit_format:commas(Ports)},
+                {"ETS", nit_format:commas(Ets)},
+                {"Atoms", nit_format:commas(Atoms)}
             ]
         },
 
@@ -212,7 +212,7 @@ handle_event({click, home_widgets_btn, _}, _State) ->
     {switch, demo_widgets, #{}};
 
 handle_event(Event, State) ->
-    case iso_shortcuts:handle(Event, State, [
+    case nit_shortcuts:handle(Event, State, [
         {"p", fun(_) -> {switch, demo_processes, #{}} end},
         {"n", fun(_) -> {switch, demo_network, #{}} end},
         {"e", fun(_) -> {switch, demo_ets, #{}} end},

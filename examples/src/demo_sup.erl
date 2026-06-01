@@ -21,11 +21,11 @@ init([]) ->
     Children = [
         #{
             id => demo_home,
-            start => {iso_server, start_link, [{local, demo_ui}, demo_home, #{}]},
+            start => {nit_server, start_link, [{local, demo_ui}, demo_home, #{}]},
             restart => temporary,
             shutdown => 5000,
             type => worker,
-            modules => [iso_server, demo_home]
+            modules => [nit_server, demo_home]
         }
     ],
     {ok, {SupFlags, Children}}.
