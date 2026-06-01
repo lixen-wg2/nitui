@@ -21,7 +21,7 @@ render(#stat_row{visible = false}, _Bounds, _Opts) ->
 render(#stat_row{items = [], x = X, y = Y}, Bounds, _Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    [nit_ansi:move_to(ActualY + 1, ActualX + 1)];
+    [nit_ansi:move_to(ActualY, ActualX)];
 render(#stat_row{items = Items, separator = Sep, x = X, y = Y,
                  label_style = LabelStyle, value_style = ValueStyle,
                  style = Style}, Bounds, Opts) ->
@@ -52,7 +52,7 @@ render(#stat_row{items = Items, separator = Sep, x = X, y = Y,
     Joined = lists:join(SepOutput, ItemOutputs),
     
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         Joined
     ].
 
@@ -66,4 +66,3 @@ width(#stat_row{items = Items, separator = Sep}, _Bounds) ->
 
 fixed_width(#stat_row{width = fill}) -> auto;
 fixed_width(#stat_row{width = W}) -> W.
-

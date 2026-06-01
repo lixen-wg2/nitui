@@ -74,6 +74,18 @@ shift_right_arrow_test() ->
 shift_left_arrow_test() ->
     ?assertEqual([{key, {shift, left}}], send_and_receive(<<"\e[1;2D">>)).
 
+application_up_arrow_test() ->
+    ?assertEqual([{key, up}], send_and_receive(<<"\eOA">>)).
+
+application_down_arrow_test() ->
+    ?assertEqual([{key, down}], send_and_receive(<<"\eOB">>)).
+
+application_right_arrow_test() ->
+    ?assertEqual([{key, right}], send_and_receive(<<"\eOC">>)).
+
+application_left_arrow_test() ->
+    ?assertEqual([{key, left}], send_and_receive(<<"\eOD">>)).
+
 %%====================================================================
 %% Navigation key tests
 %%====================================================================

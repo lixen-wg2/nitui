@@ -69,7 +69,7 @@ render(#progress_bar{value = Value, max = Max, width = W, x = X, y = Y,
     BarStyle = maps:merge(maps:merge(BaseStyle, Style), #{fg => BarColor}),
     
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(BarStyle),
         FilledPart,
         nit_ansi:reset_style(),
@@ -107,4 +107,3 @@ build_suffix(false, true, _Ratio, Value, Max) ->
     iolist_to_binary(io_lib:format(" ~p/~p", [round(Value), round(Max)]));
 build_suffix(false, false, _Ratio, _Value, _Max) ->
     <<>>.
-

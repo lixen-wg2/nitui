@@ -119,14 +119,14 @@ render_header(false, _Headers, _Columns, _ColWidths, _Style, _X, _Y, _BO, _W, _C
 render_header(true, Headers, Columns, ColWidths, Style, ActualX, ActualY, BorderOffset, Width, ContentWidth) ->
     HeaderText = pad_line(render_table_row_text(
         Headers, ColWidths, Columns), ContentWidth),
-    HeaderY = ActualY + BorderOffset + 1,
-    SepY = ActualY + BorderOffset + 2,
+    HeaderY = ActualY + BorderOffset,
+    SepY = ActualY + BorderOffset + 1,
     [
-        nit_ansi:move_to(HeaderY, ActualX + BorderOffset + 1),
+        nit_ansi:move_to(HeaderY, ActualX + BorderOffset),
         nit_ansi:style_to_ansi(maps:merge(Style, #{bold => true})),
         HeaderText,
         nit_ansi:reset_style(),
-        nit_ansi:move_to(SepY, ActualX + BorderOffset + 1),
+        nit_ansi:move_to(SepY, ActualX + BorderOffset),
         nit_ansi:style_to_ansi(Style),
         nit_ansi:repeat_bin(<<"─"/utf8>>, Width - 2 * BorderOffset),
         nit_ansi:reset_style()
@@ -150,9 +150,9 @@ render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
                 true -> Style
             end,
             RowText = pad_line(render_table_row_text(RowData, ColWidths, Columns), ContentWidth),
-            RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx,
+            RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx - 1,
             [
-                nit_ansi:move_to(RowY, ActualX + BorderOffset + 1),
+                nit_ansi:move_to(RowY, ActualX + BorderOffset),
                 nit_ansi:style_to_ansi(RowStyle),
                 RowText,
                 nit_ansi:reset_style()
@@ -165,9 +165,9 @@ render_empty_rows(RenderedRows, VisibleHeight, Style, ActualX, ActualY,
     BlankLine = blank_line(ContentWidth),
     lists:map(
         fun(RowIdx) ->
-            RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx,
+            RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx - 1,
             [
-                nit_ansi:move_to(RowY, ActualX + BorderOffset + 1),
+                nit_ansi:move_to(RowY, ActualX + BorderOffset),
                 nit_ansi:style_to_ansi(Style),
                 BlankLine,
                 nit_ansi:reset_style()
@@ -180,12 +180,12 @@ render_border(Border, Style, ActualX, ActualY, Width, Height) ->
     {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(Border),
     [
         nit_ansi:style_to_ansi(Style),
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         TL, nit_ansi:repeat_bin(HZ, Width - 2), TR,
-        [[nit_ansi:move_to(ActualY + 1 + Row, ActualX + 1),
+        [[nit_ansi:move_to(ActualY + Row, ActualX),
           VT, lists:duplicate(Width - 2, $\s), VT]
          || Row <- lists:seq(1, Height - 2)],
-        nit_ansi:move_to(ActualY + Height, ActualX + 1),
+        nit_ansi:move_to(ActualY + Height - 1, ActualX),
         BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
         nit_ansi:reset_style()
     ].

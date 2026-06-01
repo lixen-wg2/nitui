@@ -15,10 +15,10 @@
 %% Cursor Movement
 %%====================================================================
 
-%% @doc Move cursor to row, col (1-based)
+%% @doc Move cursor to row, col (0-based)
 -spec move_to(integer(), integer()) -> binary().
 move_to(Row, Col) ->
-    iolist_to_binary(io_lib:format("\e[~B;~BH", [Row, Col])).
+    iolist_to_binary(nit_terminal:cursor(Row, Col)).
 
 %%====================================================================
 %% Style Handling
@@ -28,44 +28,11 @@ move_to(Row, Col) ->
 style_to_ansi(Style) when map_size(Style) == 0 ->
     [];
 style_to_ansi(Style) ->
-    Codes = lists:filtermap(
-        fun({Key, Value}) -> style_code(Key, Value) end,
-        maps:to_list(Style)
-    ),
-    case Codes of
-        [] -> [];
-        _ -> [<<"\e[">>, lists:join($;, Codes), <<"m">>]
-    end.
-
-style_code(fg, Color) -> {true, fg_code(Color)};
-style_code(bg, Color) -> {true, bg_code(Color)};
-style_code(bold, true) -> {true, <<"1">>};
-style_code(dim, true) -> {true, <<"2">>};
-style_code(italic, true) -> {true, <<"3">>};
-style_code(underline, true) -> {true, <<"4">>};
-style_code(_, _) -> false.
-
-fg_code(black) -> <<"30">>; fg_code(red) -> <<"31">>; fg_code(green) -> <<"32">>;
-fg_code(yellow) -> <<"33">>; fg_code(blue) -> <<"34">>; fg_code(magenta) -> <<"35">>;
-fg_code(cyan) -> <<"36">>; fg_code(white) -> <<"37">>;
-fg_code(bright_black) -> <<"90">>; fg_code(bright_red) -> <<"91">>;
-fg_code(bright_green) -> <<"92">>; fg_code(bright_yellow) -> <<"93">>;
-fg_code(bright_blue) -> <<"94">>; fg_code(bright_magenta) -> <<"95">>;
-fg_code(bright_cyan) -> <<"96">>; fg_code(bright_white) -> <<"97">>;
-fg_code(_) -> <<"37">>.
-
-bg_code(black) -> <<"40">>; bg_code(red) -> <<"41">>; bg_code(green) -> <<"42">>;
-bg_code(yellow) -> <<"43">>; bg_code(blue) -> <<"44">>; bg_code(magenta) -> <<"45">>;
-bg_code(cyan) -> <<"46">>; bg_code(white) -> <<"47">>;
-bg_code(bright_black) -> <<"100">>; bg_code(bright_red) -> <<"101">>;
-bg_code(bright_green) -> <<"102">>; bg_code(bright_yellow) -> <<"103">>;
-bg_code(bright_blue) -> <<"104">>; bg_code(bright_magenta) -> <<"105">>;
-bg_code(bright_cyan) -> <<"106">>; bg_code(bright_white) -> <<"107">>;
-bg_code(_) -> <<"40">>.
+    nit_terminal:style(Style).
 
 -spec reset_style() -> binary().
 reset_style() ->
-    <<"\e[0m">>.
+    iolist_to_binary(nit_terminal:reset()).
 
 %%====================================================================
 %% Text Helpers
@@ -132,14 +99,14 @@ render_box_border(ActualX, ActualY, Width, Height, Style, Title, Border) ->
     [
         style_to_ansi(Style),
         %% Top border
-        move_to(ActualY + 1, ActualX + 1),
+        move_to(ActualY, ActualX),
         TL, render_title_line(Title, HZ, Width - 2), TR,
         %% Side borders
-        [[move_to(ActualY + 1 + Row, ActualX + 1),
+        [[move_to(ActualY + Row, ActualX),
           VT, lists:duplicate(Width - 2, $\s), VT]
          || Row <- lists:seq(1, Height - 2)],
         %% Bottom border
-        move_to(ActualY + Height, ActualX + 1),
+        move_to(ActualY + Height - 1, ActualX),
         BL, repeat_bin(HZ, Width - 2), BR,
         reset_style()
     ].

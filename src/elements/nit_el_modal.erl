@@ -47,12 +47,12 @@ render(#modal{title = Title, children = Children, border = Border,
     ModalBox = [
         nit_ansi:reset_style(),  %% Reset any dim styling from background
         nit_ansi:style_to_ansi(Style),
-        nit_ansi:move_to(ModalY + 1, ModalX + 1),
+        nit_ansi:move_to(ModalY, ModalX),
         TL, nit_ansi:render_title_line(Title, HZ, Width - 2), TR,
-        [[nit_ansi:move_to(ModalY + 1 + Row, ModalX + 1),
+        [[nit_ansi:move_to(ModalY + Row, ModalX),
           VT, lists:duplicate(Width - 2, $\s), VT]
          || Row <- lists:seq(1, Height - 2)],
-        nit_ansi:move_to(ModalY + Height, ModalX + 1),
+        nit_ansi:move_to(ModalY + Height - 1, ModalX),
         BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
         nit_ansi:reset_style()
     ],
@@ -97,4 +97,3 @@ get_element_id(Element) when is_tuple(Element), tuple_size(Element) >= 2 ->
     element(2, Element);
 get_element_id(_) ->
     undefined.
-

@@ -66,12 +66,12 @@ render(#input{value = Value, placeholder = Placeholder, cursor_pos = CursorPos,
     %% Cursor positioning (show cursor at position if focused)
     CursorOutput = case Focused andalso CursorVisible of
         true ->
-            CursorCol = ActualX + 2 + min(CursorPos, max(0, FieldWidth - 1)),
-            [nit_ansi:move_to(ActualY + 1, CursorCol)];
+            CursorCol = ActualX + 1 + min(CursorPos, max(0, FieldWidth - 1)),
+            [nit_ansi:move_to(ActualY, CursorCol)];
         false -> []
     end,
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(MergedStyle),
         <<"[">>, FieldOutput,
         nit_ansi:reset_style(),

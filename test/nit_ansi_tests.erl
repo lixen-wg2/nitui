@@ -17,13 +17,13 @@
 %%====================================================================
 
 move_to_origin_test() ->
-    ?assertEqual(<<"\e[1;1H">>, nit_ansi:move_to(1, 1)).
+    ?assertEqual(<<"\e[1;1H">>, nit_ansi:move_to(0, 0)).
 
 move_to_position_test() ->
-    ?assertEqual(<<"\e[10;20H">>, nit_ansi:move_to(10, 20)).
+    ?assertEqual(<<"\e[10;20H">>, nit_ansi:move_to(9, 19)).
 
 move_to_large_position_test() ->
-    ?assertEqual(<<"\e[100;200H">>, nit_ansi:move_to(100, 200)).
+    ?assertEqual(<<"\e[100;200H">>, nit_ansi:move_to(99, 199)).
 
 %%====================================================================
 %% style_to_ansi tests
@@ -81,7 +81,7 @@ style_unknown_key_ignored_test() ->
 %%====================================================================
 
 reset_style_test() ->
-    ?assertEqual(<<"\e[0m">>, nit_ansi:reset_style()).
+    ?assertEqual(<<"\e(B\e[m">>, nit_ansi:reset_style()).
 
 %%====================================================================
 %% truncate_content tests

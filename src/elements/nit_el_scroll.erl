@@ -140,7 +140,7 @@ viewport_to_ansi(Screen, Width, ViewHeight, Offset, DestX, DestY) ->
 
 render_viewport_row(Screen, Width, SourceRow, DestX, DestY) ->
     [
-        nit_ansi:move_to(DestY + 1, DestX + 1),
+        nit_ansi:move_to(DestY, DestX),
         render_viewport_cells(Screen, Width, SourceRow, 0, #{}, []),
         nit_ansi:reset_style()
     ].
@@ -196,7 +196,7 @@ render_scrollbar_lines(X, Y, Remaining, ThumbPos, ThumbSize, Acc) ->
               true ->
                   <<"░">>   %% Track
            end,
-    Line = [nit_ansi:move_to(Y + LineIdx + 1, X + 1),
+    Line = [nit_ansi:move_to(Y + LineIdx, X),
             nit_ansi:style_to_ansi(#{fg => gray}),
             Char,
             nit_ansi:reset_style()],

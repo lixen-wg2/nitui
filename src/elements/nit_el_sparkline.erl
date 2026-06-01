@@ -29,7 +29,7 @@ render(#sparkline{values = [], width = W, x = X, y = Y}, Bounds, _Opts) ->
     ActualY = Bounds#bounds.y + Y,
     Width = case W of auto -> 20; fill -> Bounds#bounds.width - X; _ -> W end,
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         list_to_binary(lists:duplicate(Width, $-))
     ];
 render(#sparkline{values = Values, width = W, x = X, y = Y,
@@ -61,7 +61,7 @@ render(#sparkline{values = Values, width = W, x = X, y = Y,
     MergedStyle = maps:merge(maps:merge(BaseStyle, Style), #{fg => Color}),
     
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(MergedStyle),
         unicode:characters_to_binary(PaddedChart),
         nit_ansi:reset_style()
@@ -114,4 +114,3 @@ render_braille(Values) ->
     %% For sparkline, we use dots 7,8,3,6,2,5,1,4 from bottom to top
     DotMap = [0, 16#80, 16#84, 16#44, 16#46, 16#06, 16#07, 16#47],
     [?BRAILLE_BASE + lists:nth(min(8, V + 1), DotMap) || V <- Values].
-

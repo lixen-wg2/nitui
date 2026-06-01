@@ -1,6 +1,7 @@
 {application, nitui, [
     {description, "NitUI TUI Framework"},
     {vsn, "1.0.0"},
+    {minimum_otp_vsn, "29"},
     {registered, [nit_sup, nit_tty, nit_input]},
     {mod, {nitui_app, []}},
     {applications, [

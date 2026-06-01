@@ -53,10 +53,10 @@ render(#status_bar{items = Items, separator = Sep, x = X, y = Y,
     ClearLine = list_to_binary(lists:duplicate(Bounds#bounds.width, $ )),
     
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(maps:merge(BaseStyle, Style)),
         ClearLine,
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:reset_style(),
         Joined
     ].

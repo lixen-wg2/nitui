@@ -207,7 +207,7 @@ handle_info(refresh_tick, State = #nit_state{callback = Cb, user_state = US, tre
     %% Notify the callback module of periodic tick
     NewUS = case erlang:function_exported(Cb, handle_event, 2) of
         true ->
-            case catch Cb:handle_event(tick, US) of
+            case safe_callback_tick(Cb, US) of
                 {noreply, S} -> S;
                 _ -> US
             end;
@@ -232,9 +232,16 @@ terminate(_Reason, #nit_state{cursor_timer = CursorTimer, refresh_timer = Refres
     maybe_cancel_timer(CursorTimer),
     maybe_cancel_timer(RefreshTimer),
     %% Cleanup terminal state (disable mouse, show cursor, exit alt screen)
-    %% We catch errors in case nit_tty is already stopped
-    catch nit_tty:cleanup(),
+    %% Ignore errors in case nit_tty is already stopped.
+    try nit_tty:cleanup()
+    catch _:_ -> ok
+    end,
     ok.
+
+safe_callback_tick(Cb, UserState) ->
+    try Cb:handle_event(tick, UserState)
+    catch _:_ -> error
+    end.
 
 %%====================================================================
 %% Internal: Modal focus helpers

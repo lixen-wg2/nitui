@@ -1,7 +1,7 @@
 # NitUI: Design Notes
 
 **Architecture:** Retained mode, event-driven (Nitrogen-inspired).
-**Runtime:** Erlang/OTP 27+ `prim_tty` (raw mode).
+**Runtime:** Erlang/OTP 29+ `prim_tty` (raw mode) and `io_ansi`.
 
 ---
 

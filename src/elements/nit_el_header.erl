@@ -55,10 +55,10 @@ render(#header{title = Title, subtitle = Subtitle, items = Items,
     FullLine = list_to_binary(lists:duplicate(Width, $ )),
     
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(HeaderStyle),
         FullLine,
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(BoldStyle),
         LeftBin,
         nit_ansi:style_to_ansi(HeaderStyle),
@@ -74,4 +74,3 @@ width(#header{}, Bounds) -> Bounds#bounds.width.
 
 fixed_width(#header{width = fill}) -> auto;
 fixed_width(#header{width = W}) -> W.
-

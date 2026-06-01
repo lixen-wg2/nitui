@@ -43,7 +43,9 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, _State) ->
     %% Unregister signal handler
-    catch os:set_signal(sigwinch, default),
+    try os:set_signal(sigwinch, default)
+    catch _:_ -> ok
+    end,
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

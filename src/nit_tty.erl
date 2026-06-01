@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% @doc TTY owner process for NitUI.
 %%%
-%%% Manages the terminal state using OTP 28's prim_tty module.
+%%% Manages the terminal state using OTP 29's prim_tty and io_ansi modules.
 %%% Responsibilities:
 %%% - Initialize raw mode terminal
 %%% - Enter alternate screen buffer
@@ -28,17 +28,6 @@
     reader_ref :: reference() | undefined,
     resize_target :: pid() | undefined  %% Process to notify on resize
 }).
-
-%% ANSI escape sequences
--define(ENTER_ALT_SCREEN, <<"\e[?1049h">>).
--define(EXIT_ALT_SCREEN, <<"\e[?1049l">>).
--define(HIDE_CURSOR, <<"\e[?25l">>).
--define(SHOW_CURSOR, <<"\e[?25h">>).
--define(RESET_ATTRS, <<"\e[0m">>).
--define(CLEAR_SCREEN, <<"\e[2J\e[H">>).
-%% Mouse tracking (button-event mode + SGR extended coordinates)
--define(ENABLE_MOUSE, <<"\e[?1002h\e[?1006h">>).
--define(DISABLE_MOUSE, <<"\e[?1006l\e[?1002l">>).
 
 %%====================================================================
 %% API
@@ -67,7 +56,7 @@ write(Data) ->
 %% @doc Clear the screen.
 -spec clear() -> ok.
 clear() ->
-    write(?CLEAR_SCREEN).
+    write(nit_terminal:clear()).
 
 %% @doc Get terminal size as {Cols, Rows}.
 -spec get_size() -> {ok, {pos_integer(), pos_integer()}} | {error, term()}.
@@ -99,8 +88,14 @@ init([]) ->
                 _ ->
                     ok
             end,
-            %% Enter alternate screen, hide cursor, enable mouse
-            do_write(TtyState, [?ENTER_ALT_SCREEN, ?HIDE_CURSOR, ?ENABLE_MOUSE, ?CLEAR_SCREEN]),
+            %% Enter alternate screen, hide cursor, enable mouse/input modes
+            do_write(TtyState, [
+                nit_terminal:alternate_screen(),
+                nit_terminal:keypad_transmit_mode(),
+                nit_terminal:cursor_hide(),
+                nit_terminal:mouse_mode(),
+                nit_terminal:clear()
+            ]),
             %% Start reading input
             prim_tty:read(TtyState),
             {ok, #state{tty_state = TtyState, reader_ref = ReaderRef}};
@@ -161,7 +156,9 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{tty_state = TtyState}) ->
     %% Remove signal handler
-    catch gen_event:delete_handler(erl_signal_server, nit_sighandler, []),
+    try gen_event:delete_handler(erl_signal_server, nit_sighandler, [])
+    catch _:_ -> ok
+    end,
     cleanup_tty(TtyState),
     ok.
 
@@ -184,7 +181,9 @@ init_tty() ->
 handle_resize_signal(State = #state{tty_state = TtyState, resize_target = Target}) ->
     NewTtyState = handle_tty_signal(TtyState, sigwinch),
     notify_resize(Target, NewTtyState),
-    catch prim_tty:read(NewTtyState),
+    try prim_tty:read(NewTtyState)
+    catch _:_ -> ok
+    end,
     {noreply, State#state{tty_state = NewTtyState}}.
 
 handle_tty_signal(TtyState, Signal) ->
@@ -197,13 +196,18 @@ handle_tty_signal(TtyState, Signal) ->
 notify_resize(undefined, _TtyState) ->
     ok;
 notify_resize(Pid, TtyState) when is_pid(Pid) ->
-    case catch prim_tty:window_size(TtyState) of
+    case safe_window_size(TtyState) of
         {ok, {Cols, Rows}} when Cols > 0, Rows > 0 ->
             Pid ! {resize, Cols, Rows};
         {ok, {Cols, Rows}} ->
             Pid ! {resize, max(1, Cols), max(1, Rows)};
         _ ->
             ok
+    end.
+
+safe_window_size(TtyState) ->
+    try prim_tty:window_size(TtyState)
+    catch _:_ -> error
     end.
 
 do_write(undefined, _Data) ->
@@ -265,8 +269,9 @@ cleanup_tty(undefined) ->
 cleanup_tty(TtyState) ->
     %% Restore terminal state
     do_write(TtyState, [
-        ?RESET_ATTRS,
-        ?DISABLE_MOUSE,
-        ?SHOW_CURSOR,
-        ?EXIT_ALT_SCREEN
+        nit_terminal:reset(),
+        nit_terminal:mouse_mode_off(),
+        nit_terminal:keypad_transmit_mode_off(),
+        nit_terminal:cursor_show(),
+        nit_terminal:alternate_screen_off()
     ]).

@@ -92,7 +92,7 @@ render_item_line(X, Y, Width, Label, Style) ->
     Padding = binary:copy(<<" ">>, max(0, MaxLabelLen - LabelLen)),
     
     [
-        nit_ansi:move_to(Y + 1, X + 1),
+        nit_ansi:move_to(Y, X),
         nit_ansi:style_to_ansi(Style),
         TruncatedLabel,
         Padding,

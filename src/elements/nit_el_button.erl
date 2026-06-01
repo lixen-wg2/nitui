@@ -41,7 +41,7 @@ render(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, O
     LeftPad = Padding div 2,
     RightPad = Padding - LeftPad,
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(MergedStyle),
         lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
         nit_ansi:reset_style()

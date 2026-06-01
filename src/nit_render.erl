@@ -93,12 +93,12 @@ render_two_level_impl(#box{id = Id, children = Children, border = Border, title 
     end,
     [
         nit_ansi:style_to_ansi(BorderStyle),
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         TL, nit_ansi:render_title_line(Title, HZ, Width - 2), TR,
-        [[nit_ansi:move_to(ActualY + 1 + Row, ActualX + 1),
+        [[nit_ansi:move_to(ActualY + Row, ActualX),
           VT, lists:duplicate(Width - 2, $\s), VT]
          || Row <- lists:seq(1, Height - 2)],
-        nit_ansi:move_to(ActualY + Height, ActualX + 1),
+        nit_ansi:move_to(ActualY + Height - 1, ActualX),
         BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
         nit_ansi:reset_style(),
         render_children_two_level(Children, ChildBounds, Container, Child, Opts)
@@ -178,7 +178,7 @@ render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsConta
             LabelBin = iolist_to_binary([<<" ">>, Label, <<" ">>]),
             LabelLen = byte_size(LabelBin),
             Header = [
-                nit_ansi:move_to(Y + 1, CurX + 1),
+                nit_ansi:move_to(Y, CurX),
                 nit_ansi:style_to_ansi(TabStyle),
                 LabelBin,
                 nit_ansi:reset_style()
@@ -226,12 +226,12 @@ render_focused_styled(#box{border = Border, title = Title, children = Children,
     MergedStyle = maps:merge(Style, BaseStyle),
     [
         nit_ansi:style_to_ansi(MergedStyle),
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         TL, nit_ansi:render_title_line(Title, HZ, Width - 2), TR,
-        [[nit_ansi:move_to(ActualY + 1 + Row, ActualX + 1),
+        [[nit_ansi:move_to(ActualY + Row, ActualX),
           VT, lists:duplicate(Width - 2, $\s), VT]
          || Row <- lists:seq(1, Height - 2)],
-        nit_ansi:move_to(ActualY + Height, ActualX + 1),
+        nit_ansi:move_to(ActualY + Height - 1, ActualX),
         BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
         nit_ansi:reset_style(),
         render_children_styled(Children, ChildBounds, FocusedId, BaseStyle)
@@ -268,7 +268,7 @@ render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width =
     LeftPad = Padding div 2,
     RightPad = Padding - LeftPad,
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(MergedStyle),
         lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
         nit_ansi:reset_style()
@@ -314,7 +314,7 @@ render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style) ->
                 true -> Style
             end,
             Header = [
-                nit_ansi:move_to(Y + 1, CurX + 1),
+                nit_ansi:move_to(Y, CurX),
                 nit_ansi:style_to_ansi(TabStyle),
                 <<" ">>, LabelBin, <<" ">>,
                 nit_ansi:reset_style()
@@ -355,14 +355,14 @@ render_table_styled(#table{columns = Columns, rows = Rows, selected_row = Select
                 true ->
                     HeaderText = render_table_row_text(
                         HeaderValues, ColWidths, Columns),
-                    HeaderY = ActualY + BorderOffset + 1,
-                    SepY = ActualY + BorderOffset + 2,
+                    HeaderY = ActualY + BorderOffset,
+                    SepY = ActualY + BorderOffset + 1,
                     [
-                        nit_ansi:move_to(HeaderY, ActualX + BorderOffset + 1),
+                        nit_ansi:move_to(HeaderY, ActualX + BorderOffset),
                         nit_ansi:style_to_ansi(maps:merge(MergedStyle, #{bold => true})),
                         HeaderText,
                         nit_ansi:reset_style(),
-                        nit_ansi:move_to(SepY, ActualX + BorderOffset + 1),
+                        nit_ansi:move_to(SepY, ActualX + BorderOffset),
                         nit_ansi:style_to_ansi(MergedStyle),
                         nit_ansi:repeat_bin(<<"─"/utf8>>, Width - 2 * BorderOffset),
                         nit_ansi:reset_style()
@@ -378,9 +378,9 @@ render_table_styled(#table{columns = Columns, rows = Rows, selected_row = Select
                         true -> MergedStyle
                     end,
                     RowText = render_table_row_text(RowData, ColWidths, Columns),
-                    RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx,
+                    RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx - 1,
                     [
-                        nit_ansi:move_to(RowY, ActualX + BorderOffset + 1),
+                        nit_ansi:move_to(RowY, ActualX + BorderOffset),
                         nit_ansi:style_to_ansi(RowStyle),
                         RowText,
                         nit_ansi:reset_style()
@@ -393,12 +393,12 @@ render_table_styled(#table{columns = Columns, rows = Rows, selected_row = Select
                     {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(Border),
                     [
                         nit_ansi:style_to_ansi(MergedStyle),
-                        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+                        nit_ansi:move_to(ActualY, ActualX),
                         TL, nit_ansi:repeat_bin(HZ, Width - 2), TR,
-                        [[nit_ansi:move_to(ActualY + 1 + Row, ActualX + 1),
+                        [[nit_ansi:move_to(ActualY + Row, ActualX),
                           VT, lists:duplicate(Width - 2, $\s), VT]
                          || Row <- lists:seq(1, Height - 2)],
-                        nit_ansi:move_to(ActualY + Height, ActualX + 1),
+                        nit_ansi:move_to(ActualY + Height - 1, ActualX),
                         BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
                         nit_ansi:reset_style()
                     ]
@@ -425,7 +425,7 @@ render_button(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bo
     LeftPad = Padding div 2,
     RightPad = Padding - LeftPad,
     [
-        nit_ansi:move_to(ActualY + 1, ActualX + 1),
+        nit_ansi:move_to(ActualY, ActualX),
         nit_ansi:style_to_ansi(FocusStyle),
         lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
         nit_ansi:reset_style()
@@ -470,12 +470,12 @@ render_modal(#modal{title = Title, children = Children, border = Border,
             ModalBox = [
                 nit_ansi:reset_style(),  %% Reset any dim styling from background
                 nit_ansi:style_to_ansi(Style),
-                nit_ansi:move_to(ModalY + 1, ModalX + 1),
+                nit_ansi:move_to(ModalY, ModalX),
                 TL, nit_ansi:render_title_line(Title, HZ, Width - 2), TR,
-                [[nit_ansi:move_to(ModalY + 1 + Row, ModalX + 1),
+                [[nit_ansi:move_to(ModalY + Row, ModalX),
                   VT, lists:duplicate(Width - 2, $\s), VT]
                  || Row <- lists:seq(1, Height - 2)],
-                nit_ansi:move_to(ModalY + Height, ModalX + 1),
+                nit_ansi:move_to(ModalY + Height - 1, ModalX),
                 BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
                 nit_ansi:reset_style()
             ],

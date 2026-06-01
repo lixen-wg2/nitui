@@ -30,5 +30,5 @@ cd examples
 
 ## Requirements
 
-- Erlang/OTP 27+ (uses `prim_tty` for raw terminal access)
+- Erlang/OTP 29+ (uses `prim_tty` for raw terminal access and `io_ansi` for terminal control)
 - A terminal emulator with ANSI and SGR mouse support

@@ -73,7 +73,7 @@ render_lines([], _X, _Y, _Style, _LineIdx, Acc) ->
     lists:reverse(Acc);
 render_lines([Line | Rest], X, Y, Style, LineIdx, Acc) ->
     Output = [
-        nit_ansi:move_to(Y + LineIdx + 1, X + 1),
+        nit_ansi:move_to(Y + LineIdx, X),
         nit_ansi:style_to_ansi(Style),
         Line,
         nit_ansi:reset_style()

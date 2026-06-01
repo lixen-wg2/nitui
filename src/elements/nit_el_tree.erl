@@ -95,7 +95,7 @@ render_node(#tree_node{id = Id, label = Label, icon = Icon, children = Children,
     end,
     
     [
-        nit_ansi:move_to(Y + 1, X + 1),
+        nit_ansi:move_to(Y, X),
         nit_ansi:style_to_ansi(#{dim => true}),
         Prefix,
         nit_ansi:reset_style(),

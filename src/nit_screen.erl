@@ -143,18 +143,22 @@ render_rows(_Cells, _W, H, Row, _LastStyle, Acc) when Row >= H ->
     lists:reverse(Acc);
 render_rows(Cells, W, H, Row, LastStyle, Acc) ->
     {RowOutput, NewLastStyle} = render_row(Cells, W, Row, 0, LastStyle, []),
-    %% Move to start of row (1-indexed for ANSI)
-    MoveTo = io_lib:format("\e[~B;1H", [Row + 1]),
+    MoveTo = nit_ansi:move_to(Row, 0),
     render_rows(Cells, W, H, Row + 1, NewLastStyle, [[MoveTo, RowOutput] | Acc]).
 
-render_row(_Cells, W, _Row, Col, LastStyle, Acc) when Col >= W ->
-    {lists:reverse(Acc), LastStyle};
-render_row(Cells, W, Row, Col, LastStyle, Acc) ->
-    Idx = Row * W + Col,
-    #cell{char = Char, style = Style} = array:get(Idx, Cells),
-    StyleChange = style_change(LastStyle, Style),
-    CharBin = char_to_binary(Char),
-    render_row(Cells, W, Row, Col + 1, Style, [[StyleChange, CharBin] | Acc]).
+render_row(Cells, W, Row, _Col, LastStyle, Acc) ->
+    Start = Row * W,
+    End = Start + W - 1,
+    {Output, FinalStyle} = array:foldl(
+        Start, End,
+        fun(_Idx, #cell{char = Char, style = Style}, {CellsAcc, PrevStyle}) ->
+            StyleChange = style_change(PrevStyle, Style),
+            CharBin = char_to_binary(Char),
+            {[[StyleChange, CharBin] | CellsAcc], Style}
+        end,
+        {Acc, LastStyle},
+        Cells),
+    {lists:reverse(Output), FinalStyle}.
 
 %%====================================================================
 %% Internal - Differential rendering
@@ -189,7 +193,7 @@ diff_row(OldCells, NewCells, W, Row, Col, LastStyle, Acc) ->
         true ->
             diff_row(OldCells, NewCells, W, Row, Col + 1, LastStyle, Acc);
         false ->
-            MoveTo = io_lib:format("\e[~B;~BH", [Row + 1, Col + 1]),
+            MoveTo = nit_ansi:move_to(Row, Col),
             {RunOutput, NewLastStyle, NextCol} =
                 diff_changed_run(OldCells, NewCells, W, Row, Col, LastStyle, []),
             diff_row(OldCells, NewCells, W, Row, NextCol, NewLastStyle,
@@ -247,6 +251,13 @@ parse_ansi(<<>>, Screen, _Col, _Row, _Style) ->
 parse_ansi(<<"\e[", Rest/binary>>, Screen, Col, Row, Style) ->
     %% CSI sequence
     parse_csi(Rest, Screen, Col, Row, Style);
+parse_ansi(<<"\e(", _Charset, Rest/binary>>, Screen, Col, Row, Style) ->
+    %% Character set selection, emitted by io_ansi:reset/0. It does not
+    %% consume a visible cell.
+    parse_ansi(Rest, Screen, Col, Row, Style);
+parse_ansi(<<"\e", _Final, Rest/binary>>, Screen, Col, Row, Style) ->
+    %% Ignore other single ESC sequences in the virtual-screen parser.
+    parse_ansi(Rest, Screen, Col, Row, Style);
 parse_ansi(<<"\n", Rest/binary>>, Screen, _Col, Row, Style) ->
     %% Newline - move to start of next row
     parse_ansi(Rest, Screen, 0, Row + 1, Style);
@@ -275,7 +286,8 @@ parse_csi(Bin, Screen, Col, Row, Style) ->
             parse_ansi(Rest, Screen, NewCol, NewRow, Style);
         {Params, $m, Rest} ->
             %% SGR (Select Graphic Rendition) - style changes
-            NewStyle = apply_sgr(Params, Style),
+            SgrParams = case Params of [] -> [0]; _ -> Params end,
+            NewStyle = apply_sgr(SgrParams, Style),
             parse_ansi(Rest, Screen, Col, Row, NewStyle);
         {_Params, $J, Rest} ->
             %% Erase in Display - ignore for now

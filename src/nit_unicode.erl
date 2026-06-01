@@ -61,45 +61,45 @@ truncate_chars([Char | Rest], Remaining, Acc) ->
 
 char_width(Char) when Char < 32 ->
     0;
-char_width(Char) when Char >= 16#7F, Char < 16#A0 ->
+char_width(Char) when is_integer(Char, 16#7F, 16#9F) ->
     0;
 char_width(16#200D) ->
     0;
-char_width(Char) when Char >= 16#0300, Char =< 16#036F ->
+char_width(Char) when is_integer(Char, 16#0300, 16#036F) ->
     0;
-char_width(Char) when Char >= 16#1AB0, Char =< 16#1AFF ->
+char_width(Char) when is_integer(Char, 16#1AB0, 16#1AFF) ->
     0;
-char_width(Char) when Char >= 16#1DC0, Char =< 16#1DFF ->
+char_width(Char) when is_integer(Char, 16#1DC0, 16#1DFF) ->
     0;
-char_width(Char) when Char >= 16#20D0, Char =< 16#20FF ->
+char_width(Char) when is_integer(Char, 16#20D0, 16#20FF) ->
     0;
-char_width(Char) when Char >= 16#FE00, Char =< 16#FE0F ->
+char_width(Char) when is_integer(Char, 16#FE00, 16#FE0F) ->
     0;
-char_width(Char) when Char >= 16#FE20, Char =< 16#FE2F ->
+char_width(Char) when is_integer(Char, 16#FE20, 16#FE2F) ->
     0;
-char_width(Char) when Char >= 16#E0100, Char =< 16#E01EF ->
+char_width(Char) when is_integer(Char, 16#E0100, 16#E01EF) ->
     0;
-char_width(Char) when Char >= 16#1F3FB, Char =< 16#1F3FF ->
+char_width(Char) when is_integer(Char, 16#1F3FB, 16#1F3FF) ->
     0;
-char_width(Char) when Char >= 16#1100, Char =< 16#115F ->
+char_width(Char) when is_integer(Char, 16#1100, 16#115F) ->
     2;
-char_width(Char) when Char >= 16#2329, Char =< 16#232A ->
+char_width(Char) when is_integer(Char, 16#2329, 16#232A) ->
     2;
-char_width(Char) when Char >= 16#2E80, Char =< 16#A4CF ->
+char_width(Char) when is_integer(Char, 16#2E80, 16#A4CF) ->
     2;
-char_width(Char) when Char >= 16#AC00, Char =< 16#D7A3 ->
+char_width(Char) when is_integer(Char, 16#AC00, 16#D7A3) ->
     2;
-char_width(Char) when Char >= 16#F900, Char =< 16#FAFF ->
+char_width(Char) when is_integer(Char, 16#F900, 16#FAFF) ->
     2;
-char_width(Char) when Char >= 16#FE10, Char =< 16#FE19 ->
+char_width(Char) when is_integer(Char, 16#FE10, 16#FE19) ->
     2;
-char_width(Char) when Char >= 16#FE30, Char =< 16#FE6F ->
+char_width(Char) when is_integer(Char, 16#FE30, 16#FE6F) ->
     2;
-char_width(Char) when Char >= 16#FF01, Char =< 16#FF60 ->
+char_width(Char) when is_integer(Char, 16#FF01, 16#FF60) ->
     2;
-char_width(Char) when Char >= 16#FFE0, Char =< 16#FFE6 ->
+char_width(Char) when is_integer(Char, 16#FFE0, 16#FFE6) ->
     2;
-char_width(Char) when Char >= 16#1F000, Char =< 16#1FAFF ->
+char_width(Char) when is_integer(Char, 16#1F000, 16#1FAFF) ->
     2;
 char_width(_) ->
     1.

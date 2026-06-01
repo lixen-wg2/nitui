@@ -142,9 +142,8 @@ parse_input(<<"\eO", Rest/binary>> = Buffer, Acc) ->
     case classify_ss3(Rest) of
         incomplete ->
             {lists:reverse(Acc), Buffer};
-        {complete, Remaining} ->
-            %% Unknown SS3 sequence - consume and ignore it.
-            parse_input(Remaining, Acc)
+        {complete, Sequence, Remaining} ->
+            parse_scanned_sequence(Sequence, Remaining, Acc)
     end;
 
 %% Unknown or incomplete CSI sequence (\e[...)
@@ -152,9 +151,8 @@ parse_input(<<"\e[", Rest/binary>> = Buffer, Acc) ->
     case classify_csi(Rest) of
         incomplete ->
             {lists:reverse(Acc), Buffer};
-        {complete, Remaining} ->
-            %% Unknown CSI sequence - consume and ignore it.
-            parse_input(Remaining, Acc)
+        {complete, Sequence, Remaining} ->
+            parse_scanned_sequence(Sequence, Remaining, Acc)
     end;
 
 %% Standalone Escape key (no [ following, so not an escape sequence)
@@ -172,7 +170,7 @@ parse_input(<<127, Rest/binary>>, Acc) -> parse_input(Rest, [backspace | Acc]);
 
 %% Control characters
 parse_input(<<0, Rest/binary>>, Acc) -> parse_input(Rest, [{ctrl, $@} | Acc]);  %% Ctrl+@/Space
-parse_input(<<C, Rest/binary>>, Acc) when C >= 1, C =< 26 ->
+parse_input(<<C, Rest/binary>>, Acc) when is_integer(C, 1, 26) ->
     parse_input(Rest, [{ctrl, C + $a - 1} | Acc]);
 parse_input(<<28, Rest/binary>>, Acc) -> parse_input(Rest, [{ctrl, $\\} | Acc]);
 parse_input(<<29, Rest/binary>>, Acc) -> parse_input(Rest, [{ctrl, $]} | Acc]);
@@ -198,7 +196,7 @@ parse_sgr_params(<<>>, _Acc) ->
     incomplete;
 parse_sgr_params(<<$;, Rest/binary>>, Acc) ->
     parse_sgr_params(Rest, [0 | Acc]);
-parse_sgr_params(<<C, Rest/binary>>, Acc) when C >= $0, C =< $9 ->
+parse_sgr_params(<<C, Rest/binary>>, Acc) when is_integer(C, $0, $9) ->
     parse_sgr_number(Rest, C - $0, Acc);
 parse_sgr_params(<<$M, Rest/binary>>, Acc) ->
     finish_sgr(lists:reverse(Acc), true, Rest);
@@ -209,7 +207,7 @@ parse_sgr_params(_, _Acc) ->
 
 parse_sgr_number(<<>>, _Num, _Acc) ->
     incomplete;
-parse_sgr_number(<<C, Rest/binary>>, Num, Acc) when C >= $0, C =< $9 ->
+parse_sgr_number(<<C, Rest/binary>>, Num, Acc) when is_integer(C, $0, $9) ->
     parse_sgr_number(Rest, Num * 10 + (C - $0), Acc);
 parse_sgr_number(<<$;, Rest/binary>>, Num, Acc) ->
     parse_sgr_params(Rest, [Num | Acc]);
@@ -250,14 +248,45 @@ mouse_event(Button, IsPress, Col, Row) ->
 
 classify_ss3(<<>>) ->
     incomplete;
-classify_ss3(<<Final, Rest/binary>>) when Final >= 64, Final =< 126 ->
-    {complete, Rest};
+classify_ss3(<<Final, Rest/binary>>) when is_integer(Final, 64, 126) ->
+    {complete, <<"\eO", Final>>, Rest};
 classify_ss3(_) ->
     incomplete.
 
 classify_csi(<<>>) ->
     incomplete;
-classify_csi(<<Final, Rest/binary>>) when Final >= 64, Final =< 126 ->
-    {complete, Rest};
-classify_csi(<<_, Rest/binary>>) ->
-    classify_csi(Rest).
+classify_csi(Rest) ->
+    classify_csi(Rest, <<"\e[">>).
+
+classify_csi(<<>>, _Acc) ->
+    incomplete;
+classify_csi(<<Final, Rest/binary>>, Acc) when is_integer(Final, 64, 126) ->
+    {complete, <<Acc/binary, Final>>, Rest};
+classify_csi(<<C, Rest/binary>>, Acc) ->
+    classify_csi(Rest, <<Acc/binary, C>>).
+
+parse_scanned_sequence(Sequence, Remaining, Acc) ->
+    case io_ansi_event(Sequence) of
+        undefined ->
+            %% Unknown sequence - consume and ignore it.
+            parse_input(Remaining, Acc);
+        Event ->
+            parse_input(Remaining, [Event | Acc])
+    end.
+
+io_ansi_event(Sequence) ->
+    try io_ansi:scan(Sequence) of
+        [Token] -> io_ansi_token_event(Token);
+        _ -> undefined
+    catch
+        _:_ -> undefined
+    end.
+
+io_ansi_token_event(kcursor_up) -> {key, up};
+io_ansi_token_event(kcursor_down) -> {key, down};
+io_ansi_token_event(kcursor_backward) -> {key, left};
+io_ansi_token_event(kcursor_forward) -> {key, right};
+io_ansi_token_event(kcursor_home) -> {key, home};
+io_ansi_token_event(kcursor_end) -> {key, 'end'};
+io_ansi_token_event(cursor_home) -> {key, home};
+io_ansi_token_event(_) -> undefined.

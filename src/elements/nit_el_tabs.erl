@@ -112,7 +112,7 @@ render_tab_bar(Tabs, ActiveTab, X, Y, Width, Style, Focused) ->
                     maps:merge(Style, #{dim => true})
             end,
             TabOutput = [
-                nit_ansi:move_to(Y + 1, CurrentX + 1),
+                nit_ansi:move_to(Y, CurrentX),
                 nit_ansi:style_to_ansi(TabStyle),
                 <<" ">>, LabelBin, <<" ">>,
                 nit_ansi:reset_style()
@@ -126,7 +126,7 @@ render_tab_bar(Tabs, ActiveTab, X, Y, Width, Style, Focused) ->
         end,
         {[], X}, Tabs),
     Underline = [
-        nit_ansi:move_to(Y + 2, X + 1),
+        nit_ansi:move_to(Y + 1, X),
         nit_ansi:style_to_ansi(Style),
         nit_ansi:repeat_bin(<<"─"/utf8>>, Width),
         nit_ansi:reset_style()
