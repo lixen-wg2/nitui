@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Widgets - Showcases List and Scroll elements
+%%% @doc Demo Widgets - Showcases list, tabs, scroll, and table elements.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(demo_widgets).
@@ -11,7 +11,6 @@
 -export([init/1, view/1, handle_event/2]).
 
 init(_Args) ->
-    %% Sample items for the list
     MenuItems = [
         "Dashboard",
         "Processes",
@@ -33,22 +32,21 @@ view(State) ->
         selected_idx := SelectedIdx,
         log_wrap := LogWrap
     } = State,
-    ActiveItem = nitui:selected_item(menu_box),
+    ActiveItem = nitui:selected_item(MenuItems, SelectedIdx, "Dashboard"),
     LogEntries = logs_for(ActiveItem),
     LogTitle = log_title(ActiveItem, LogWrap),
+    MetricRows = metric_rows(ActiveItem),
     #vbox{children = [
-        %% Header
         #header{
             title = "Widget Demo",
-            subtitle = "List & Scroll elements"
+            subtitle = "Lists, tabs, scroll, and tables"
         },
 
-        %% Main content row
         #hbox{spacing = 0, height = fill, children = [
-            %% Left panel: List element
             #box{
                 id = menu_box,
                 title = "Menu",
+                border = single,
                 width = 15,
                 height = fill,
                 focusable = true,
@@ -64,32 +62,73 @@ view(State) ->
                 ]
             },
 
-            %% Right panel: Scroll container with logs
-            #box{
-                id = logs_box,
-                title = LogTitle,
+            #tabs{
+                id = widget_tabs,
                 width = fill,
                 height = fill,
                 focusable = true,
-                children = [
-                    #scroll{
-                        id = log_scroll,
-                        height = fill,
-                        focusable = true,
-                        children = [
-                            #vbox{children = [
-                                #text{content = Entry, wrap = LogWrap} || Entry <- LogEntries
-                            ]}
-                        ]
-                    }
+                style = #{fg => cyan},
+                tabs = [
+                    #tab{id = logs, label = "Logs", content = [
+                        #vbox{children = [
+                            #text{content = LogTitle, style = #{bold => true}},
+                            #scroll{
+                                id = log_scroll,
+                                height = fill,
+                                focusable = true,
+                                children = [
+                                    #vbox{children = [
+                                        #text{content = Entry, wrap = LogWrap}
+                                        || Entry <- LogEntries
+                                    ]}
+                                ]
+                            }
+                        ]}
+                    ]},
+                    #tab{id = metrics, label = "Metrics", content = [
+                        #vbox{children = [
+                            #stat_row{items = [
+                                {"Source", item_label(ActiveItem)},
+                                {"Rows", integer_to_list(length(MetricRows))},
+                                {"Mode", "Synthetic"}
+                            ]},
+                            #table{
+                                id = widget_metric_table,
+                                height = fill,
+                                border = single,
+                                focusable = true,
+                                columns = [
+                                    #table_col{id = metric, header = "Metric", width = 24},
+                                    #table_col{id = value, header = "Value", width = 14, align = right},
+                                    #table_col{id = trend, header = "Trend", width = 12}
+                                ],
+                                rows = MetricRows,
+                                selected_row = 1
+                            }
+                        ]}
+                    ]},
+                    #tab{id = notes, label = "Notes", content = [
+                        #scroll{
+                            id = notes_scroll,
+                            height = fill,
+                            focusable = true,
+                            children = [
+                                #vbox{children = [
+                                    #text{content = Entry, wrap = true}
+                                    || Entry <- notes_for(ActiveItem)
+                                ]}
+                            ]
+                        }
+                    ]}
                 ]
             }
         ]},
 
-        %% Status bar
         #status_bar{
             items = [
                 {"H", "Home"},
+                {"Left/Right", "Tabs"},
+                {"W", "Wrap"},
                 {"F", "Fullscreen"},
                 {"Q", "Quit"}
             ]
@@ -97,16 +136,32 @@ view(State) ->
     ]}.
 
 handle_event({list_select, menu_list, Idx, _Item}, State) ->
-    %% Update selected index when list selection changes (Enter key pressed)
     {noreply, State#{selected_idx => Idx}};
+handle_event({table_activate, widget_metric_table, _RowIdx, [Metric, Value, Trend]}, State) ->
+    Modal = #modal{
+        title = "Metric",
+        width = 44,
+        height = 8,
+        style = #{fg => cyan, bold => true},
+        children = [
+            #vbox{children = [
+                #text{content = Metric, style = #{fg => yellow, bold => true}},
+                #text{content = ["Value: ", Value]},
+                #text{content = ["Trend: ", Trend]},
+                #spacer{height = 1},
+                #text{content = "Press ESC to close", style = #{fg => white, dim => true}}
+            ]}
+        ]
+    },
+    {modal, Modal, State};
 handle_event({event, {char, $w}}, State = #{log_wrap := LogWrap}) ->
     {noreply, State#{log_wrap => not LogWrap}};
 handle_event({event, {char, $W}}, State = #{log_wrap := LogWrap}) ->
     {noreply, State#{log_wrap => not LogWrap}};
 handle_event({event, {char, $f}}, State) ->
-    {toggle_fullscreen, logs_box, State};
+    {toggle_fullscreen, widget_tabs, State};
 handle_event({event, {char, $F}}, State) ->
-    {toggle_fullscreen, logs_box, State};
+    {toggle_fullscreen, widget_tabs, State};
 handle_event(Event, State) ->
     case nit_shortcuts:handle(Event, State, [
         {"h", fun(_) -> {switch, demo_home, #{}} end},
@@ -225,6 +280,79 @@ logs_for(_Other) ->
 
 make_log_stream(BaseEntries, Generator) ->
     BaseEntries ++ [Generator(N) || N <- lists:seq(1, 50)].
+
+metric_rows("Dashboard") ->
+    [
+        ["Refresh latency", "18 ms", "stable"],
+        ["Cards rendered", "8", "up"],
+        ["Open alerts", "3", "down"],
+        ["Cache hit rate", "94%", "stable"],
+        ["Forecast delta", "+2.4%", "up"]
+    ];
+metric_rows("Processes") ->
+    [
+        ["Process count", integer_to_list(erlang:system_info(process_count)), "live"],
+        ["Process limit", integer_to_list(erlang:system_info(process_limit)), "fixed"],
+        ["Run queue", integer_to_list(erlang:statistics(run_queue)), "live"],
+        ["Schedulers", integer_to_list(erlang:system_info(schedulers)), "fixed"],
+        ["Reductions", nit_format:commas(element(1, erlang:statistics(reductions))), "live"]
+    ];
+metric_rows("Network") ->
+    [
+        ["TCP connections", "45", "stable"],
+        ["UDP sockets", "12", "stable"],
+        ["Input rate", "320 KB/s", "up"],
+        ["Output rate", "260 KB/s", "up"],
+        ["Retry budget", "72%", "down"]
+    ];
+metric_rows("ETS Tables") ->
+    [
+        ["Tables", integer_to_list(length(ets:all())), "live"],
+        ["ETS memory", nit_format:bytes(erlang:memory(ets)), "live"],
+        ["Named tables", "18", "stable"],
+        ["Objects sampled", "12,480", "up"],
+        ["Cleanup queue", "4", "down"]
+    ];
+metric_rows("System Info") ->
+    [
+        ["OTP release", erlang:system_info(otp_release), "fixed"],
+        ["Atom count", nit_format:commas(erlang:system_info(atom_count)), "live"],
+        ["Ports", nit_format:commas(erlang:system_info(port_count)), "live"],
+        ["Total memory", nit_format:bytes(erlang:memory(total)), "live"],
+        ["Node", atom_to_list(node()), "fixed"]
+    ];
+metric_rows("Settings") ->
+    [
+        ["Theme", "terminal-classic", "fixed"],
+        ["Autosave", "disabled", "fixed"],
+        ["Profiles", "3", "stable"],
+        ["Pending changes", "0", "stable"],
+        ["Shortcut maps", "validated", "fixed"]
+    ];
+metric_rows("Help") ->
+    [
+        ["Topics", "12", "stable"],
+        ["Examples", "37", "stable"],
+        ["Search index", "ready", "fixed"],
+        ["External links", "disabled", "fixed"],
+        ["Last render", "6 ms", "stable"]
+    ];
+metric_rows(_Other) ->
+    [
+        ["Events", "50", "stable"],
+        ["Status", "ready", "fixed"],
+        ["Warnings", "0", "stable"]
+    ].
+
+notes_for(ActiveItem) ->
+    Label = item_label(ActiveItem),
+    [
+        ["Current area: ", Label],
+        "Status: healthy",
+        "Owner: demo runtime",
+        "Sampling: synthetic values with selected live BEAM counters",
+        "Last update: refreshed during render"
+    ].
 
 log_title(ActiveItem, LogWrap) ->
     lists:flatten(io_lib:format("Logs (~s) [w:~s]", [

@@ -1,7 +1,7 @@
 {application, demo, [
     {description, "NitUI Demo Application"},
     {vsn, "0.1.0"},
-    {registered, [demo_server]},
+    {registered, [demo_ui]},
     {mod, {demo_app, []}},
     {applications, [
         kernel,
@@ -12,4 +12,3 @@
     {modules, []},
     {licenses, ["Apache-2.0"]}
 ]}.
-

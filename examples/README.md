@@ -27,7 +27,7 @@ cd examples
 | `demo_processes` | Live process list with detail drill-down |
 | `demo_network` | Network statistics with sparklines |
 | `demo_ets` | ETS table browser |
-| `demo_widgets` | Widget showcase (inputs, lists, trees) |
+| `demo_widgets` | Widget showcase with list, tabs, scroll, and table views |
 | `demo_virtual` | Virtual scrolling table demo |
 
 ## Keys
