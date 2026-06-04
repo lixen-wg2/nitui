@@ -76,6 +76,13 @@ render_two_level_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ElemOutput], CurrentX + ElemWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
+render_two_level_impl(#box{border = none, children = Children,
+                           x = X, y = Y}, Bounds, Container, Child, Opts) ->
+    ChildBounds = Bounds#bounds{
+        x = Bounds#bounds.x + X,
+        y = Bounds#bounds.y + Y
+    },
+    render_children_two_level(Children, ChildBounds, Container, Child, Opts);
 render_two_level_impl(#box{id = Id, children = Children, border = Border, title = Title,
                            style = Style, x = X, y = Y, width = W, height = H}, Bounds, Container, Child, Opts) ->
     ActualX = Bounds#bounds.x + X,
@@ -214,6 +221,13 @@ render_focused_styled(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ChildOutput], CurrentX + ChildWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
+render_focused_styled(#box{border = none, children = Children,
+                           x = X, y = Y}, Bounds, FocusedId, BaseStyle) ->
+    ChildBounds = Bounds#bounds{
+        x = Bounds#bounds.x + X,
+        y = Bounds#bounds.y + Y
+    },
+    render_children_styled(Children, ChildBounds, FocusedId, BaseStyle);
 render_focused_styled(#box{border = Border, title = Title, children = Children,
                     style = Style, x = X, y = Y, width = W, height = H}, Bounds, FocusedId, BaseStyle) ->
     ActualX = Bounds#bounds.x + X,

@@ -24,7 +24,7 @@ do_find_bounds(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Id, 
     ChildWidths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
     find_in_hbox(lists:zip(Children, ChildWidths), Id, StartBounds, Spacing,
                  StartBounds#bounds.x);
-do_find_bounds(#box{id = ElementId, children = Children,
+do_find_bounds(#box{id = ElementId, children = Children, border = Border,
                     x = X, y = Y, width = W, height = H}, Id, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
@@ -35,9 +35,15 @@ do_find_bounds(#box{id = ElementId, children = Children,
         true ->
             {ok, ElementBounds};
         false ->
-            ChildBounds = #bounds{x = ActualX + 1, y = ActualY + 1,
-                                  width = max(1, Width - 2),
-                                  height = max(1, Height - 2)},
+            ChildBounds = case Border of
+                none ->
+                    #bounds{x = ActualX, y = ActualY,
+                            width = max(1, Width), height = max(1, Height)};
+                _ ->
+                    #bounds{x = ActualX + 1, y = ActualY + 1,
+                            width = max(1, Width - 2),
+                            height = max(1, Height - 2)}
+            end,
             find_in_children(Children, Id, ChildBounds)
     end;
 do_find_bounds(#tabs{id = ElementId, tabs = TabList, active_tab = ActiveTab0,

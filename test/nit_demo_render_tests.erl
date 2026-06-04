@@ -78,6 +78,28 @@ list_selection_does_not_shift_item_text_test() ->
     ?assertEqual(<<"Processes   ">>, row_text(Screen, 12, 1)),
     ?assertEqual(<<"Network     ">>, row_text(Screen, 12, 2)).
 
+two_level_borderless_box_does_not_shift_list_children_test() ->
+    Bounds = #bounds{x = 0, y = 0, width = 12, height = 3},
+    Tree = #box{
+        id = menu_box,
+        border = none,
+        focusable = true,
+        children = [
+            #list{
+                id = menu_list,
+                items = [<<"First">>, <<"Second">>],
+                selected = 0,
+                height = 2
+            }
+        ]
+    },
+    Screen = nit_screen:from_ansi(
+        nit_render:render_two_level(Tree, Bounds, menu_box, menu_list),
+        12,
+        3),
+    ?assertEqual(<<"First       ">>, row_text(Screen, 12, 0)),
+    ?assertEqual(<<"Second      ">>, row_text(Screen, 12, 1)).
+
 text_wrap_uses_render_bounds_width_test() ->
     Bounds = #bounds{x = 0, y = 0, width = 6, height = 3},
     Tree = #text{content = <<"abcdefghij">>, wrap = true},

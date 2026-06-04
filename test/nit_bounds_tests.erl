@@ -39,6 +39,7 @@ find_button_bounds_inside_nested_vbox_with_spacer_test() ->
         y = 10,
         width = 20,
         height = 8,
+        border = single,
         children = [
             #vbox{children = [
                 #text{content = <<"Header">>},
@@ -52,6 +53,24 @@ find_button_bounds_inside_nested_vbox_with_spacer_test() ->
     ?assertEqual(1, ButtonBounds#bounds.x),
     ?assertEqual(16, ButtonBounds#bounds.y),
     ?assertEqual(1, ButtonBounds#bounds.height).
+
+find_child_bounds_inside_borderless_box_test() ->
+    Tree = #box{
+        id = outer_box,
+        x = 3,
+        y = 4,
+        width = 20,
+        height = 8,
+        border = none,
+        children = [
+            #list{id = menu_list, items = [<<"One">>, <<"Two">>]}
+        ]
+    },
+    RootBounds = #bounds{x = 0, y = 0, width = 40, height = 30},
+    {ok, ListBounds} = nit_bounds:find_element_bounds(Tree, menu_list, RootBounds),
+    ?assertEqual(3, ListBounds#bounds.x),
+    ?assertEqual(4, ListBounds#bounds.y),
+    ?assertEqual(20, ListBounds#bounds.width).
 
 find_auto_hbox_child_bounds_share_width_test() ->
     Tree = #hbox{children = [
