@@ -2,6 +2,10 @@
 
 A Nitrogen-inspired terminal UI framework for Erlang/OTP.
 
+## Demo
+
+<img src="docs/nitui-demo.gif" alt="NitUI terminal demo" width="900">
+
 ## Features
 
 - **Declarative UI** — build views with nested element records (`#box{}`, `#table{}`, `#tabs{}`, `#list{}`, `#tree{}`, `#scroll{}`, `#input{}`, `#button{}`, `#modal{}`, etc.)
