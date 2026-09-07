@@ -7,6 +7,18 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("nitui/include/nit_elements.hrl").
 
+navigate_table_cleared_selection_returns_to_first_row_test() ->
+    Table = #table{rows = [[N] || N <- lists:seq(1, 20)], selected_row = 0,
+                   scroll_offset = 15, height = 5, show_header = false},
+    ?assertMatch(#table{selected_row = 1, scroll_offset = 0}, nit_nav:navigate_table(down, Table)),
+    ?assertMatch(#table{selected_row = 1, scroll_offset = 0}, nit_nav:navigate_table(up, Table)).
+
+navigate_table_reordered_selection_becomes_visible_test() ->
+    Table = #table{rows = [[N] || N <- lists:seq(1, 20)], selected_row = 18,
+                   scroll_offset = 0, height = 5, show_header = false},
+    ?assertMatch(#table{selected_row = 19, scroll_offset = 14}, nit_nav:navigate_table(down, Table)),
+    ?assertMatch(#table{selected_row = 17, scroll_offset = 12}, nit_nav:navigate_table(up, Table)).
+
 navigate_table_respects_borderless_height_test() ->
     Table = #table{
         rows = lists:duplicate(10, [<<"row">>]),

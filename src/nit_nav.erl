@@ -43,8 +43,8 @@ navigate_table(down, Lines, VisibleHeight, #table{rows = Rows, total_rows = Tota
             T#table{selected_row = 0, scroll_offset = 0};
         _ ->
             SafeVisibleH = max(1, VisibleHeight),
-            NewSel = min(NumRows, max(1, Sel) + Lines),
-            NewOff = if NewSel > Off + SafeVisibleH -> Off + Lines; true -> Off end,
+            NewSel = min(NumRows, max(0, Sel) + Lines),
+            NewOff = table_selection_offset(NewSel, Off, SafeVisibleH),
             MaxOff = max(0, NumRows - SafeVisibleH),
             T#table{selected_row = NewSel, scroll_offset = min(NewOff, MaxOff)}
     end;
@@ -61,12 +61,21 @@ navigate_table(up, Lines, VisibleHeight, #table{rows = Rows, total_rows = TotalR
         _ ->
             SafeVisibleH = max(1, VisibleHeight),
             NewSel = max(1, min(NumRows, max(1, Sel) - Lines)),
-            NewOff = if NewSel < Off + 1 -> max(0, Off - Lines); true -> Off end,
+            NewOff = table_selection_offset(NewSel, Off, SafeVisibleH),
             MaxOff = max(0, NumRows - SafeVisibleH),
             T#table{selected_row = NewSel, scroll_offset = min(NewOff, MaxOff)}
     end;
 
 navigate_table(_, _Lines, _VisibleHeight, T) -> T.
+
+%% A keyed refresh can move/clear the selection independently of the offset.
+%% Bring the new selection into view even when it is more than Lines away.
+table_selection_offset(Selected, Offset, VisibleHeight) ->
+    if
+        Selected > Offset + VisibleHeight -> Selected - VisibleHeight;
+        Selected =< Offset -> Selected - 1;
+        true -> max(0, Offset)
+    end.
 
 %%====================================================================
 %% List Navigation
@@ -119,10 +128,8 @@ table_visible_height(#table{height = auto}, NumRows) ->
     max(1, NumRows);
 table_visible_height(#table{height = fill}, NumRows) ->
     max(1, NumRows);
-table_visible_height(#table{height = H, border = Border, show_header = ShowHeader}, _NumRows) ->
-    BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
-    max(1, H - 2 * BorderOffset - HeaderOffset).
+table_visible_height(#table{height = H} = Table, _NumRows) ->
+    max(1, H - nit_el_table:overhead(Table)).
 
 list_visible_height(auto, NumItems) ->
     max(1, NumItems);

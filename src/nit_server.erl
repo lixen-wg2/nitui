@@ -27,6 +27,12 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
+-ifdef(TEST).
+%% Exercise rebuilds and input routing without starting a terminal or
+%% duplicating this module's private state record in tests.
+-export([rebuild_for_test/4, input_for_test/5]).
+-endif.
+
 -record(fullscreen, {
     id :: term(),
     tree :: term(),
@@ -666,9 +672,17 @@ handle_arrow_non_input(Dir, State, Container, Child, Tree, Bounds, Cb, US, _Wher
                                     NewTable = nit_engine:navigate_table(UpOrDown, Table, Tree, Bounds),
                                     NewTabs = nit_engine:update_tab_content(Tabs, EffectiveTab, Table, NewTable),
                                     NewTree = nit_tree:update(Tree, Container, NewTabs),
-                                    NewState = State#nit_state{tree = NewTree},
-                                    FinalState = render_diff(NewState),
-                                    {noreply, FinalState};
+                                    Event = {table_select, NewTable#table.id, NewTable#table.selected_row,
+                                             nit_engine:table_row_data(NewTable, NewTable#table.selected_row)},
+                                    NewUS = nit_engine:selection_user_state(Cb, Event, US),
+                                    case _Where of
+                                        main ->
+                                            apply_view_update(NewUS, State#nit_state{tree = NewTree}, NewTree);
+                                        modal ->
+                                            NewState = set_active_tree(modal,
+                                                State#nit_state{user_state = NewUS}, NewTree),
+                                            {noreply, render_diff(NewState)}
+                                    end;
                                 false ->
                                     {noreply, State}
                             end;
@@ -807,8 +821,11 @@ handle_backspace(State = #nit_state{callback = Cb, user_state = US}) ->
             NewState = set_active_tree(Where, State#nit_state{user_state = NewUS}, NewTree),
             FinalState = render_diff(NewState),
             {noreply, FinalState};
+        false when InputId =/= undefined; State#nit_state.modal =/= undefined ->
+            %% A focused input consumes boundary edits; modals isolate input.
+            {noreply, State};
         false ->
-            {noreply, State}
+            forward_event(backspace, State)
     end.
 
 handle_delete(State = #nit_state{callback = Cb, user_state = US}) ->
@@ -823,8 +840,11 @@ handle_delete(State = #nit_state{callback = Cb, user_state = US}) ->
             NewState = set_active_tree(Where, State#nit_state{user_state = NewUS}, NewTree),
             FinalState = render_diff(NewState),
             {noreply, FinalState};
+        false when InputId =/= undefined; State#nit_state.modal =/= undefined ->
+            %% A focused input consumes boundary edits; modals isolate input.
+            {noreply, State};
         false ->
-            {noreply, State}
+            forward_event(delete, State)
     end.
 
 handle_input_cursor(Dir, _Select, _State)
@@ -1289,18 +1309,13 @@ rebuild_view_state(NewUS, State = #nit_state{fullscreen = FS0}, MergeFromTree) -
 
 rebuild_base_tree(NewUS, State = #nit_state{callback = Cb}, MergeFromTree) ->
     SourceTree = merge_source_tree(State, MergeFromTree),
-    ContextTree = case SourceTree of
-        undefined -> State#nit_state.tree;
-        _ -> SourceTree
-    end,
-    RawTree = nit_engine:call_view(Cb, NewUS, ContextTree),
-    case SourceTree of
-        undefined -> RawTree;
-        OldTree -> nit_tree:merge_state(OldTree, RawTree)
-    end.
+    RawTree = nit_engine:call_view(Cb, NewUS, SourceTree),
+    nit_tree:merge_state(SourceTree, RawTree).
 
-merge_source_tree(#nit_state{fullscreen = undefined}, undefined) ->
-    undefined;
+%% Async updates/events use the active tree just like ticks. Widgets that
+%% explicitly own their state (e.g. controlled tables) opt out in merge_state.
+merge_source_tree(#nit_state{fullscreen = undefined, tree = Tree}, undefined) ->
+    Tree;
 merge_source_tree(#nit_state{fullscreen = undefined}, MergeFromTree) ->
     MergeFromTree;
 merge_source_tree(#nit_state{fullscreen = #fullscreen{id = Id, tree = BaseTree},
@@ -1869,3 +1884,21 @@ maybe_cancel_timer(undefined) ->
 maybe_cancel_timer(Timer) ->
     erlang:cancel_timer(Timer),
     ok.
+
+-ifdef(TEST).
+rebuild_for_test(Callback, NewUS, OldTree, MergeFromTree) ->
+    State = #nit_state{callback = Callback, tree = OldTree},
+    Rebuilt = rebuild_view_state(NewUS, State, MergeFromTree),
+    Rebuilt#nit_state.tree.
+
+input_for_test(Callback, US, Tree, Modal, Event) ->
+    {Container, Child, ContainerIds} = resolve_focus(Tree, undefined, undefined),
+    State = #nit_state{
+        callback = Callback, user_state = US, tree = Tree, bounds = #bounds{},
+        focused_container = Container, focused_child = Child,
+        container_ids = ContainerIds,
+        modal = Modal, modal_focus = init_modal_focus(Modal)
+    },
+    {noreply, NewState} = handle_info({input, Event}, State),
+    {NewState#nit_state.user_state, NewState#nit_state.tree, NewState#nit_state.modal}.
+-endif.

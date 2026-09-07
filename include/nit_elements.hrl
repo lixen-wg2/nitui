@@ -143,8 +143,13 @@
     on_select = undefined :: undefined | {atom(), atom()} | fun(),
     %% Virtual scrolling fields
     total_rows = undefined :: undefined | non_neg_integer(),  %% Total row count (for virtual scrolling)
-    row_provider = undefined :: undefined | fun((StartIdx :: non_neg_integer(), Count :: pos_integer()) -> [[term()]])
+    row_provider = undefined :: undefined | fun((StartIdx :: non_neg_integer(), Count :: pos_integer()) -> [[term()]]),
     %% row_provider is called with 0-based start index and count, returns list of rows
+    row_keys = [] :: [term()],             %% Unique keys parallel to rows (all absolute rows in virtual mode)
+    controlled = false :: boolean(),       %% Rebuild uses new selection/scroll/sort, not previous widget state
+    header_separator = true :: boolean(),  %% Horizontal rule below header (false = one-line header)
+    header_style = #{} :: map(),            %% Overrides table style and default bold on header only
+    column_separator = " " :: binary() | string() %% Between columns, e.g. <<"│"/utf8>>
 }).
 
 %% Tab definition for tabs widget

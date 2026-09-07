@@ -12,6 +12,9 @@
 
 -export([render/3, height/2, width/2, fixed_width/1,
          toggle_sort/2, merge_sort_state/2, header_values/1]).
+%% Shared geometry for rendering, hit testing, and navigation.
+-export([header_height/1, overhead/1, column_widths/3, column_separator_width/1,
+         visible_rows/2, clamp_scroll_offset/2]).
 
 %%====================================================================
 %% nit_element callbacks
@@ -21,10 +24,10 @@
 render(#table{visible = false}, _Bounds, _Opts) ->
     [];
 render(#table{} = Table0, Bounds, Opts) ->
-    #table{columns = Columns, rows = StaticRows, selected_row = SelectedRow,
-              scroll_offset = ScrollOffset, border = Border, show_header = ShowHeader,
+    #table{columns = Columns, selected_row = SelectedRow,
+              border = Border,
               zebra = Zebra, style = Style, x = X, y = Y, width = W, height = H,
-              total_rows = TotalRows, row_provider = RowProvider} = Table0,
+              column_separator = ColumnSeparator} = Table0,
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Focused = maps:get(focused, Opts, false),
@@ -38,12 +41,9 @@ render(#table{} = Table0, Bounds, Opts) ->
     end,
 
     %% Determine total row count (virtual scrolling or static)
-    ActualTotalRows = case TotalRows of
-        undefined -> length(StaticRows);
-        N -> N
-    end,
+    ActualTotalRows = total_rows(Table0),
 
-    Overhead = table_overhead(Border, ShowHeader),
+    Overhead = overhead(Table0),
     Height = case H of
         auto -> min(ActualTotalRows + Overhead, Bounds#bounds.height - Y);
         fill -> max(Overhead + 1, Bounds#bounds.height - Y);
@@ -51,32 +51,23 @@ render(#table{} = Table0, Bounds, Opts) ->
     end,
 
     BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset2 = case ShowHeader of true -> 2; false -> 0 end,
+    HeaderOffset2 = header_height(Table0),
     VisibleHeight = max(0, Height - 2 * BorderOffset - HeaderOffset2),
 
     %% Fetch visible rows (virtual scrolling or static)
-    VisibleRows = case RowProvider of
-        undefined ->
-            %% Static mode - use rows field
-            lists:sublist(
-                lists:nthtail(min(ScrollOffset, max(0, length(StaticRows) - 1)), StaticRows),
-                max(0, VisibleHeight));
-        Provider when is_function(Provider, 2) ->
-            %% Virtual scrolling mode - fetch from provider
-            Provider(ScrollOffset, VisibleHeight)
-    end,
+    ScrollOffset = clamp_scroll_offset(Table0, VisibleHeight),
+    VisibleRows = visible_rows(Table0, VisibleHeight),
 
     %% For column width calculation, use visible rows (or sample for virtual)
-    ColWidths = calculate_column_widths(header_values(Table0), Columns, VisibleRows,
-                                        Width - 2 * BorderOffset),
+    ColWidths = column_widths(Table0, VisibleRows, Width - 2 * BorderOffset),
 
     ContentWidth = max(0, Width - 2 * BorderOffset),
-    HeaderRow = render_header(ShowHeader, header_values(Table0), Columns, ColWidths, MergedStyle,
-                              ActualX, ActualY, BorderOffset, Width, ContentWidth),
+    HeaderRow = render_header(Table0, ColWidths, MergedStyle,
+                              ActualX, ActualY, BorderOffset, ContentWidth),
 
     DataRows = render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
                                    Zebra, Focused, MergedStyle, ActualX, ActualY,
-                                   BorderOffset, HeaderOffset2, ContentWidth),
+                                   BorderOffset, HeaderOffset2, ContentWidth, ColumnSeparator),
 
     EmptyRows = render_empty_rows(length(VisibleRows), VisibleHeight, MergedStyle,
                                   ActualX, ActualY, BorderOffset, HeaderOffset2, ContentWidth),
@@ -86,15 +77,11 @@ render(#table{} = Table0, Bounds, Opts) ->
     [BorderOutput, HeaderRow, DataRows, EmptyRows].
 
 -spec height(#table{}, #bounds{}) -> pos_integer() | {flex, non_neg_integer()}.
-height(#table{height = H, rows = Rows, total_rows = TotalRows,
-              border = Border, show_header = ShowHeader}, Bounds) ->
-    ActualTotalRows = case TotalRows of
-        undefined -> length(Rows);
-        N -> N
-    end,
+height(#table{height = H} = Table, Bounds) ->
+    ActualTotalRows = total_rows(Table),
     case H of
-        auto -> min(ActualTotalRows + table_overhead(Border, ShowHeader), Bounds#bounds.height);
-        fill -> {flex, table_overhead(Border, ShowHeader) + 1};
+        auto -> min(ActualTotalRows + overhead(Table), Bounds#bounds.height);
+        fill -> {flex, overhead(Table) + 1};
         _ -> H
     end.
 
@@ -115,27 +102,36 @@ fixed_width(#table{width = W}) -> W.
 %% Internal
 %%====================================================================
 
-render_header(false, _Headers, _Columns, _ColWidths, _Style, _X, _Y, _BO, _W, _ContentW) -> [];
-render_header(true, Headers, Columns, ColWidths, Style, ActualX, ActualY, BorderOffset, Width, ContentWidth) ->
+render_header(#table{show_header = false}, _ColWidths, _Style, _X, _Y, _BO, _ContentW) -> [];
+render_header(#table{columns = Columns, header_style = HeaderStyle,
+                      header_separator = HeaderSeparator,
+                      column_separator = ColumnSeparator} = Table,
+               ColWidths, Style, ActualX, ActualY, BorderOffset, ContentWidth) ->
     HeaderText = pad_line(render_table_row_text(
-        Headers, ColWidths, Columns), ContentWidth),
+        header_values(Table), ColWidths, Columns, ColumnSeparator), ContentWidth),
     HeaderY = ActualY + BorderOffset,
     SepY = ActualY + BorderOffset + 1,
+    Separator = case HeaderSeparator of
+        false -> [];
+        true -> [
+            nit_ansi:move_to(SepY, ActualX + BorderOffset),
+            nit_ansi:style_to_ansi(Style),
+            nit_ansi:repeat_bin(<<"─"/utf8>>, ContentWidth),
+            nit_ansi:reset_style()
+        ]
+    end,
     [
         nit_ansi:move_to(HeaderY, ActualX + BorderOffset),
-        nit_ansi:style_to_ansi(maps:merge(Style, #{bold => true})),
+        nit_ansi:style_to_ansi(maps:merge(maps:merge(Style, #{bold => true}), HeaderStyle)),
         HeaderText,
         nit_ansi:reset_style(),
-        nit_ansi:move_to(SepY, ActualX + BorderOffset),
-        nit_ansi:style_to_ansi(Style),
-        nit_ansi:repeat_bin(<<"─"/utf8>>, Width - 2 * BorderOffset),
-        nit_ansi:reset_style()
+        Separator
     ].
 
 %% Render already-fetched visible rows (works for both static and virtual scrolling)
 render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
                     Zebra, Focused, Style, ActualX, ActualY, BorderOffset, HeaderOffset2,
-                    ContentWidth) ->
+                    ContentWidth, ColumnSeparator) ->
     lists:map(
         fun({RowIdx, RowData}) ->
             AbsRowIdx = ScrollOffset + RowIdx,
@@ -149,7 +145,7 @@ render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
                     maps:merge(Style, #{dim => true});
                 true -> Style
             end,
-            RowText = pad_line(render_table_row_text(RowData, ColWidths, Columns), ContentWidth),
+            RowText = pad_line(render_table_row_text(RowData, ColWidths, Columns, ColumnSeparator), ContentWidth),
             RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx - 1,
             [
                 nit_ansi:move_to(RowY, ActualX + BorderOffset),
@@ -190,8 +186,8 @@ render_border(Border, Style, ActualX, ActualY, Width, Height) ->
         nit_ansi:reset_style()
     ].
 
-calculate_column_widths(Headers, Columns, Rows, AvailableWidth) ->
-    WidthSpecs = width_specs(Columns, Headers),
+column_widths(#table{columns = Columns} = Table, Rows, AvailableWidth) ->
+    WidthSpecs = width_specs(Columns, header_values(Table)),
     ContentWidths0 = initial_content_widths(WidthSpecs),
     ContentWidths = lists:foldl(
         fun(Row, Widths) ->
@@ -200,7 +196,7 @@ calculate_column_widths(Headers, Columns, Rows, AvailableWidth) ->
         ContentWidths0,
         Rows),
     NumCols = length(ContentWidths),
-    TotalWidth = lists:sum(ContentWidths) + NumCols - 1,
+    TotalWidth = lists:sum(ContentWidths) + max(0, NumCols - 1) * column_separator_width(Table),
     if
         TotalWidth =< AvailableWidth -> ContentWidths;
         true ->
@@ -255,12 +251,19 @@ toggle_sort(#table{columns = Columns, rows = Rows, sort_by = CurrentSortBy,
                 ColumnId -> asc;
                 _ -> default_sort_dir(Rows, ColumnIdx)
             end,
-            apply_sort(Table#table{sort_by = ColumnId, sort_dir = SortDir},
-                       selected_row_after_sort(Rows), 0)
+            Sorted = apply_sort(Table#table{sort_by = ColumnId, sort_dir = SortDir},
+                                selected_row_after_sort(Rows), 0),
+            case Table#table.row_keys of
+                [] -> Sorted;
+                _ -> Sorted#table{selected_row = merged_selection(Table, Sorted)}
+            end
     end.
 
-merge_sort_state(#table{selected_row = OldSel, scroll_offset = OldOff,
-                        sort_by = OldSortBy, sort_dir = OldSortDir},
+%% A controlled view owns all state, including an intentional zero selection
+%% or undefined sort. Never re-sort its rows or inherit state from the old view.
+merge_sort_state(_Old, #table{controlled = true} = New) ->
+    clamp_state(New);
+merge_sort_state(#table{sort_by = OldSortBy, sort_dir = OldSortDir} = Old,
                  #table{sortable = true, row_provider = undefined} = New) ->
     SortBy = case New#table.sort_by of
         undefined -> OldSortBy;
@@ -270,17 +273,39 @@ merge_sort_state(#table{selected_row = OldSel, scroll_offset = OldOff,
         undefined -> OldSortDir;
         _ -> New#table.sort_dir
     end,
-    Merged = case SortBy of
-        undefined -> New#table{selected_row = OldSel, scroll_offset = OldOff};
-        _ -> apply_sort(New#table{sort_by = SortBy, sort_dir = SortDir}, OldSel, OldOff)
+    Sorted = case SortBy of
+        undefined -> New;
+        _ -> apply_sort(New#table{sort_by = SortBy, sort_dir = SortDir}, 0, 0)
     end,
-    Merged#table{
-        selected_row = clamp_selected_row(Merged#table.selected_row, length(Merged#table.rows)),
-        scroll_offset = max(0, Merged#table.scroll_offset)
-    };
-merge_sort_state(#table{selected_row = OldSel, scroll_offset = OldOff},
-                 #table{} = New) ->
-    New#table{selected_row = OldSel, scroll_offset = OldOff}.
+    merge_selection(Old, Sorted);
+merge_sort_state(#table{} = Old, #table{} = New) ->
+    merge_selection(Old, New).
+
+merge_selection(Old, New) ->
+    clamp_state(New#table{selected_row = merged_selection(Old, New),
+                          scroll_offset = Old#table.scroll_offset}).
+
+merged_selection(#table{row_keys = [], selected_row = Selected}, _New) ->
+    Selected;
+merged_selection(#table{row_keys = OldKeys, selected_row = Selected},
+                  #table{row_keys = NewKeys}) when Selected > 0, Selected =< length(OldKeys) ->
+    key_index(lists:nth(Selected, OldKeys), NewKeys, 1);
+merged_selection(_Old, _New) ->
+    0.
+
+key_index(_Key, [], _Index) -> 0;
+key_index(Key, [Key | _], Index) -> Index;
+key_index(Key, [_ | Rest], Index) -> key_index(Key, Rest, Index + 1).
+
+clamp_state(#table{height = Height, selected_row = Selected} = Table) ->
+    %% Without layout bounds, auto/fill can only be clamped to the last row.
+    %% Rendering and hit testing additionally clamp to the resolved viewport.
+    VisibleHeight = case Height of
+        H when is_integer(H) -> max(1, H - overhead(Table));
+        _ -> 1
+    end,
+    Table#table{selected_row = clamp_selected_row(Selected, total_rows(Table)),
+                scroll_offset = clamp_scroll_offset(Table, VisibleHeight)}.
 
 header_values(#table{columns = Columns, sortable = Sortable,
                      sort_by = SortBy, sort_dir = SortDir}) ->
@@ -296,13 +321,20 @@ header_values(#table{columns = Columns, sortable = Sortable,
         Columns).
 
 apply_sort(#table{columns = Columns, rows = Rows, sort_by = SortBy,
-                  sort_dir = SortDir} = Table, SelectedRow, ScrollOffset) ->
+                  sort_dir = SortDir, row_keys = Keys} = Table, SelectedRow, ScrollOffset) ->
     case column_index(Columns, SortBy) of
         undefined ->
             Table#table{selected_row = SelectedRow, scroll_offset = ScrollOffset};
         ColumnIdx ->
-            SortedRows = sort_rows(Rows, ColumnIdx, SortDir),
-            Table#table{rows = SortedRows, selected_row = SelectedRow, scroll_offset = ScrollOffset}
+            Ordered = sort_rows(Rows, ColumnIdx, SortDir),
+            SortedKeys = case Keys of
+                [] -> [];
+                _ ->
+                    KeyTuple = list_to_tuple(Keys),
+                    [element(Pos, KeyTuple) || {{_SortKey, Pos}, _Row} <- Ordered]
+            end,
+            Table#table{rows = [Row || {_Key, Row} <- Ordered], row_keys = SortedKeys,
+                        selected_row = SelectedRow, scroll_offset = ScrollOffset}
     end.
 
 sort_rows(Rows, ColumnIdx, SortDir) ->
@@ -311,11 +343,10 @@ sort_rows(Rows, ColumnIdx, SortDir) ->
         || {Pos, Row} <- lists:zip(lists:seq(1, length(Rows)), Rows)
     ],
     Sorted = lists:keysort(1, Decorated),
-    Ordered = case SortDir of
+    case SortDir of
         asc -> Sorted;
         desc -> lists:reverse(Sorted)
-    end,
-    [Row || {_Key, Row} <- Ordered].
+    end.
 
 column_index(Columns, ColumnId) ->
     column_index(Columns, ColumnId, 1).
@@ -427,11 +458,11 @@ selected_row_after_sort(_) -> 1.
 clamp_selected_row(_SelectedRow, 0) ->
     0;
 clamp_selected_row(SelectedRow, TotalRows) ->
-    min(max(SelectedRow, 1), TotalRows).
+    min(max(SelectedRow, 0), TotalRows).
 
-render_table_row_text(RowData, ColWidths, Columns) ->
+render_table_row_text(RowData, ColWidths, Columns, ColumnSeparator) ->
     Cells = render_table_cells(RowData, ColWidths, Columns, []),
-    lists:join(<<" ">>, Cells).
+    unicode:characters_to_binary(lists:join(ColumnSeparator, Cells)).
 
 render_table_cells(_RowData, [], _Columns, Acc) ->
     lists:reverse(Acc);
@@ -479,10 +510,34 @@ safe_nth(N, [_ | Rest], Default) when N > 1 ->
 safe_nth(_, _, Default) ->
     Default.
 
-table_overhead(Border, ShowHeader) ->
+header_height(#table{show_header = false}) -> 0;
+header_height(#table{header_separator = false}) -> 1;
+header_height(#table{}) -> 2.
+
+overhead(#table{border = Border} = Table) ->
     BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
-    2 * BorderOffset + HeaderOffset.
+    2 * BorderOffset + header_height(Table).
+
+column_separator_width(#table{column_separator = Separator}) ->
+    string:length(Separator).
+
+total_rows(#table{total_rows = undefined, rows = Rows}) -> length(Rows);
+total_rows(#table{total_rows = Total}) -> Total.
+
+clamp_scroll_offset(#table{scroll_offset = Offset} = Table, VisibleHeight) ->
+    min(max(0, Offset), max(0, total_rows(Table) - max(1, VisibleHeight))).
+
+visible_rows(Table, VisibleHeight) ->
+    Offset = clamp_scroll_offset(Table, VisibleHeight),
+    Count = min(max(0, VisibleHeight), max(0, total_rows(Table) - Offset)),
+    case {Count, Table#table.row_provider} of
+        {0, _} -> [];
+        {_, undefined} ->
+            Rows = Table#table.rows,
+            lists:sublist(lists:nthtail(min(Offset, length(Rows)), Rows), Count);
+        {_, Provider} when is_function(Provider, 2) ->
+            lists:sublist(Provider(Offset, Count), Count)
+    end.
 
 pad_line(Text, Width) when Width =< 0 ->
     case Text of
@@ -494,7 +549,7 @@ pad_line(Text, Width) ->
     Len = string:length(unicode:characters_to_list(Line)),
     case Len >= Width of
         true ->
-            Line;
+            unicode:characters_to_binary(string:slice(Line, 0, Width));
         false ->
             [Line, lists:duplicate(Width - Len, $\s)]
     end.

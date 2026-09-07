@@ -70,11 +70,6 @@ merge_state(#list{id = Id, selected = OldSel, offset = OldOff},
             #list{id = Id} = New) ->
     New#list{selected = OldSel, offset = OldOff};
 
-%% Scroll containers - preserve scroll offset
-merge_state(#scroll{id = Id, offset = OldOff},
-            #scroll{id = Id} = New) ->
-    New#scroll{offset = OldOff};
-
 %% Trees - preserve selected and expanded states
 merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes},
             #tree{id = Id} = New) ->
@@ -87,11 +82,6 @@ merge_state(#input{id = Id, value = OldVal, cursor_pos = OldPos,
             #input{id = Id} = New) ->
     New#input{value = OldVal, cursor_pos = OldPos,
               selection_anchor = OldAnchor};
-
-%% Tabs - preserve active_tab
-merge_state(#tabs{id = Id, active_tab = OldActive},
-            #tabs{id = Id} = New) ->
-    New#tabs{active_tab = OldActive};
 
 %% Container elements - recurse into children and merge
 merge_state(#vbox{children = OldChildren}, #vbox{children = NewChildren} = New) ->

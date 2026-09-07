@@ -116,9 +116,8 @@ find_at_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Col, R
     find_in_children_hbox(lists:zip(Children, ChildWidths), Col, Row, StartBounds, Spacing);
 
 find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Border,
-                    show_header = ShowHeader, scroll_offset = ScrollOffset,
-                    columns = Columns, rows = Rows, total_rows = TotalRows,
-                    row_provider = RowProvider} = Table, Col, Row, Bounds) ->
+                    show_header = ShowHeader,
+                    columns = Columns, rows = Rows, total_rows = TotalRows} = Table, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
@@ -126,25 +125,27 @@ find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Borde
         undefined -> length(Rows);
         N -> N
     end,
-    Overhead = table_overhead(Border, ShowHeader),
+    Overhead = nit_el_table:overhead(Table),
     Height = case H of
         auto -> min(ActualTotalRows + Overhead, Bounds#bounds.height - Y);
         fill -> max(Overhead + 1, Bounds#bounds.height - Y);
         _ -> H
     end,
     BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
+    HeaderOffset = nit_el_table:header_height(Table),
     VisibleHeight = max(0, Height - 2 * BorderOffset - HeaderOffset),
-    VisibleRows = visible_table_rows(RowProvider, Rows, ScrollOffset, VisibleHeight),
-    ColWidths = calculate_column_widths(nit_el_table:header_values(Table), Columns, VisibleRows,
-                                        Width - 2 * BorderOffset),
+    ScrollOffset = nit_el_table:clamp_scroll_offset(Table, VisibleHeight),
+    VisibleRows = nit_el_table:visible_rows(Table, VisibleHeight),
+    ColWidths = nit_el_table:column_widths(Table, VisibleRows, Width - 2 * BorderOffset),
+    SeparatorWidth = nit_el_table:column_separator_width(Table),
     HeaderRow = ActualY + BorderOffset + 1,
     %% Check if click is within table bounds
     if
         ShowHeader =:= true,
         Col >= ActualX + BorderOffset + 1, Col =< ActualX + Width - BorderOffset,
         Row =:= HeaderRow ->
-            case find_clicked_table_column(Columns, ColWidths, Col - ActualX - BorderOffset) of
+            case find_clicked_table_column(Columns, ColWidths, Col - ActualX - BorderOffset,
+                                           SeparatorWidth) of
                 {ok, ColumnId} -> {table_header, Id, ColumnId};
                 not_found -> {table, Id}
             end;
@@ -334,68 +335,19 @@ find_in_children_vbox([{Child, ChildHeight} | Rest], Col, Row, Bounds, Spacing) 
         Found -> Found
     end.
 
-table_overhead(Border, ShowHeader) ->
-    BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
-    2 * BorderOffset + HeaderOffset.
-
-visible_table_rows(undefined, Rows, ScrollOffset, VisibleHeight) ->
-    lists:sublist(
-        lists:nthtail(min(ScrollOffset, max(0, length(Rows) - 1)), Rows),
-        max(0, VisibleHeight)
-    );
-visible_table_rows(Provider, _Rows, ScrollOffset, VisibleHeight) when is_function(Provider, 2) ->
-    Provider(ScrollOffset, VisibleHeight).
-
-calculate_column_widths(Headers, Columns, Rows, AvailableWidth) ->
-    NumCols = length(Columns),
-    ContentWidths = lists:map(
-        fun({Idx, {Col, Header}}) ->
-            HeaderLen = string:length(to_string(Header)),
-            MaxDataLen = lists:foldl(
-                fun(Row, Max) ->
-                    CellData = safe_nth(Idx, Row, <<>>),
-                    max(Max, string:length(to_string(CellData)))
-                end, 0, Rows),
-            case Col#table_col.width of
-                auto -> max(HeaderLen, MaxDataLen);
-                W -> W
-            end
-        end,
-        lists:zip(lists:seq(1, NumCols), lists:zip(Columns, Headers))),
-    TotalWidth = lists:sum(ContentWidths) + NumCols - 1,
-    if
-        TotalWidth =< AvailableWidth -> ContentWidths;
-        true ->
-            Scale = AvailableWidth / max(1, TotalWidth),
-            [max(3, round(W * Scale)) || W <- ContentWidths]
-    end.
-
-find_clicked_table_column([], [], _ClickCol) ->
+find_clicked_table_column([], [], _ClickCol, _SeparatorWidth) ->
     not_found;
-find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol) ->
+find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol, _SeparatorWidth) ->
     if
         ClickCol >= 1, ClickCol =< Width -> {ok, Id};
         true -> not_found
     end;
-find_clicked_table_column([#table_col{id = Id} | Rest], [Width | RestWidths], ClickCol) ->
+find_clicked_table_column([#table_col{id = Id} | Rest], [Width | RestWidths], ClickCol,
+                           SeparatorWidth) ->
     if
-        ClickCol >= 1, ClickCol =< Width + 1 ->
+        ClickCol >= 1, ClickCol =< Width + SeparatorWidth ->
             {ok, Id};
         true ->
-            find_clicked_table_column(Rest, RestWidths, ClickCol - Width - 1)
+            find_clicked_table_column(Rest, RestWidths, ClickCol - Width - SeparatorWidth,
+                                      SeparatorWidth)
     end.
-
-to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
-to_string(List) when is_list(List) -> List;
-to_string(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-to_string(Int) when is_integer(Int) -> integer_to_list(Int);
-to_string(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
-to_string(Other) -> io_lib:format("~p", [Other]).
-
-safe_nth(1, [Value | _], _Default) ->
-    Value;
-safe_nth(N, [_ | Rest], Default) when N > 1 ->
-    safe_nth(N - 1, Rest, Default);
-safe_nth(_, _, Default) ->
-    Default.

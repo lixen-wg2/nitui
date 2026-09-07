@@ -180,8 +180,7 @@ find_in_hbox([{Child, ChildWidth} | Rest], Id, Bounds, Spacing, CurrentX) ->
     end.
 
 resolve_table_bounds(#table{x = X, y = Y, width = W, height = H,
-                            rows = Rows, total_rows = TotalRows,
-                            border = Border, show_header = ShowHeader}, Bounds) ->
+                            rows = Rows, total_rows = TotalRows} = Table, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = resolve_dimension(W, Bounds#bounds.width - X),
@@ -189,7 +188,7 @@ resolve_table_bounds(#table{x = X, y = Y, width = W, height = H,
         undefined -> length(Rows);
         N -> N
     end,
-    Overhead = table_overhead(Border, ShowHeader),
+    Overhead = nit_el_table:overhead(Table),
     Height = case H of
         auto -> min(ActualTotalRows + Overhead, max(1, Bounds#bounds.height - Y));
         fill -> max(Overhead + 1, Bounds#bounds.height - Y);
@@ -229,14 +228,3 @@ resolve_active_tab(undefined, []) ->
     undefined;
 resolve_active_tab(ActiveTab, _Tabs) ->
     ActiveTab.
-
-table_overhead(Border, ShowHeader) ->
-    BorderOffset = case Border of
-        none -> 0;
-        _ -> 1
-    end,
-    HeaderOffset = case ShowHeader of
-        true -> 2;
-        false -> 0
-    end,
-    2 * BorderOffset + HeaderOffset.

@@ -135,19 +135,11 @@ toggle_tree_node(Dir, TreeEl, Bounds) ->
 %% Height Resolvers
 %%====================================================================
 
-resolved_table_visible_height(Tree, TableId, #table{border = Border, show_header = ShowHeader},
+resolved_table_visible_height(Tree, TableId, #table{} = Table,
                               Bounds) ->
     case nit_bounds:find_element_bounds(Tree, TableId, Bounds) of
         {ok, #bounds{height = ResolvedHeight}} ->
-            BorderOffset = case Border of
-                none -> 0;
-                _ -> 1
-            end,
-            HeaderOffset = case ShowHeader of
-                true -> 2;
-                false -> 0
-            end,
-            max(1, ResolvedHeight - 2 * BorderOffset - HeaderOffset);
+            max(1, ResolvedHeight - nit_el_table:overhead(Table));
         not_found ->
             undefined
     end.
@@ -370,7 +362,12 @@ focus_container_for(Tree, ElementId) ->
     end.
 
 activation_target(Tree, Container, FocusedChild) ->
-    case nit_focus:find_element(Tree, FocusedChild) of
+    %% undefined means no child, not an anonymous layout element's default ID.
+    Child = case FocusedChild of
+        undefined -> undefined;
+        _ -> nit_focus:find_element(Tree, FocusedChild)
+    end,
+    case Child of
         undefined ->
             case nit_focus:find_element(Tree, Container) of
                 #table{} = Table -> Table;
@@ -382,8 +379,7 @@ activation_target(Tree, Container, FocusedChild) ->
             Element
     end.
 
-default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height = H,
-                                    border = Border, show_header = ShowHeader}) ->
+default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height = H} = Table) ->
     NumRows = case TotalRows of
         undefined -> length(Rows);
         N -> N
@@ -394,15 +390,7 @@ default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height 
         fill ->
             max(1, NumRows);
         _ ->
-            BorderOffset = case Border of
-                none -> 0;
-                _ -> 1
-            end,
-            HeaderOffset = case ShowHeader of
-                true -> 2;
-                false -> 0
-            end,
-            max(1, H - 2 * BorderOffset - HeaderOffset)
+            max(1, H - nit_el_table:overhead(Table))
     end.
 
 split_at(Bin, Pos) ->
