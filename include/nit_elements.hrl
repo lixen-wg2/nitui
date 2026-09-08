@@ -155,7 +155,8 @@
     header_style = #{} :: map(),            %% Overrides table style and default bold on header only
     column_separator = " " :: binary() | string(), %% Between columns, e.g. <<"│"/utf8>>
     selected_style = #{bg => cyan, fg => black} :: map(),
-    focused_selected_style = #{bg => white, fg => black, bold => true} :: map()
+    focused_selected_style = #{bg => white, fg => black, bold => true} :: map(),
+    activate_on_click = false :: boolean() %% Select and activate the clicked row in one event
 }).
 
 %% Tab definition for tabs widget

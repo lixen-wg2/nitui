@@ -1145,18 +1145,21 @@ handle_mouse_click(Col, Row, State = #nit_state{tree = Tree, bounds = Bounds,
             case nit_focus:find_element(Tree, TableId) of
                 #table{} = Table ->
                     Container = nit_engine:focus_container_for(Tree, TableId),
-                    FocusedState = State#nit_state{focused_container = Container,
+                    NewTable = Table#table{selected_row = RowIdx},
+                    NewTree = nit_tree:update(Tree, TableId, NewTable),
+                    FocusedState = State#nit_state{tree = NewTree, focused_container = Container,
                                                   focused_child = TableId},
-                    case Table#table.activate_on_reclick andalso
-                         Table#table.selected_row =:= RowIdx of
+                    case Table#table.activate_on_click orelse
+                         (Table#table.activate_on_reclick andalso
+                          Table#table.selected_row =:= RowIdx) of
                         true ->
+                            %% Activate the clicked selection without an intervening
+                            %% table_select callback or view rebuild.
                             handle_activate(FocusedState);
                         false ->
-                            NewTable = Table#table{selected_row = RowIdx},
-                            NewTree = nit_tree:update(Tree, TableId, NewTable),
                             Event = {table_select, TableId, RowIdx, nit_engine:table_row_data(NewTable, RowIdx)},
                             NewUS = nit_engine:selection_user_state(Cb, Event, US),
-                            apply_view_update(NewUS, FocusedState#nit_state{tree = NewTree}, NewTree)
+                            apply_view_update(NewUS, FocusedState, NewTree)
                     end;
                 _ -> {noreply, State}
             end;
