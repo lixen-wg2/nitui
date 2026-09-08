@@ -105,7 +105,7 @@ render_child_window(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, Wi
         true ->
             ChildBounds = #bounds{x = DestX, y = DestY + ChildY - ClipTop,
                                   width = Width, height = Height},
-            nit_element:render(Child, ChildBounds, Opts);
+            render_child(Child, ChildBounds, Opts);
         false ->
             render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom,
                                  DestX, DestY, Width, Opts)
@@ -122,7 +122,7 @@ render_clipped_child(#vbox{children = Children, spacing = Spacing, x = X, y = Y}
                         DestX + X, DestY, Width, Opts, []);
 render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, Width, Opts) ->
     OffscreenBounds = #bounds{x = 0, y = 0, width = Width, height = Height},
-    OffscreenOutput = nit_element:render(Child, OffscreenBounds, Opts),
+    OffscreenOutput = render_child(Child, OffscreenBounds, Opts),
     OffscreenScreen = nit_screen:from_ansi(OffscreenOutput, Width, Height),
     VisibleTop = max(ChildY, ClipTop),
     VisibleBottom = min(ChildY + Height, ClipBottom),
@@ -130,6 +130,12 @@ render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, W
     RelativeOffset = VisibleTop - ChildY,
     TargetY = DestY + VisibleTop - ClipTop,
     viewport_to_ansi(OffscreenScreen, Width, VisibleHeight, RelativeOffset, DestX, TargetY).
+
+%% Internal render hook lets the two-level renderer retain its focus context
+%% through both direct and offscreen paths. Plain element rendering is unchanged.
+render_child(Child, Bounds, Opts) ->
+    Render = maps:get(render_child, Opts, fun nit_element:render/3),
+    Render(Child, Bounds, Opts).
 
 height_value({flex, Min}) ->
     Min;

@@ -53,6 +53,10 @@ render_two_level(Element, Bounds, FocusedContainer, FocusedChild, Opts) ->
 %% Opts: optional map with cursor_visible, etc.
 %%====================================================================
 
+%% All UI records share the visible field in ELEMENT_BASE.
+render_two_level_impl(Element, _Bounds, _Container, _Child, _Opts)
+  when element(#box.visible, Element) =:= false ->
+    [];
 render_two_level_impl(#panel{children = Children}, Bounds, Container, Child, Opts) ->
     render_children_two_level(Children, Bounds, Container, Child, Opts);
 render_two_level_impl(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds, Container, Child, Opts) ->
@@ -84,18 +88,27 @@ render_two_level_impl(#box{border = none, children = Children,
     },
     render_children_two_level(Children, ChildBounds, Container, Child, Opts);
 render_two_level_impl(#box{id = Id, children = Children, border = Border, title = Title,
-                           style = Style, x = X, y = Y, width = W, height = H}, Bounds, Container, Child, Opts) ->
+                           style = Style, x = X, y = Y, width = W, height = H,
+                           focus_within = FocusWithin, focused_border = FocusedBorder,
+                           focused_style = FocusedStyle}, Bounds, Container, Child, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
     Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
     ChildBounds = #bounds{x = ActualX + 1, y = ActualY + 1,
                           width = max(0, Width - 2), height = max(0, Height - 2)},
-    {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(Border),
-    %% Container focus: highlight border if this box is the focused container
-    IsContainerFocused = Id =:= Container,
+    %% Focus-within is visual only: it does not make this box a Tab stop.
+    IsContainerFocused = focus_matches(Id, Container) orelse
+        (FocusWithin andalso lists:any(fun(Elem) ->
+            visible_focus(Elem, ChildBounds, ChildBounds, Container, Child)
+        end, Children)),
+    DisplayBorder = case IsContainerFocused andalso FocusedBorder =/= undefined of
+        true -> FocusedBorder;
+        false -> Border
+    end,
+    {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(DisplayBorder),
     BorderStyle = case IsContainerFocused of
-        true -> maps:merge(Style, #{bold => true, fg => yellow});
+        true -> maps:merge(Style, FocusedStyle);
         false -> Style
     end,
     [
@@ -112,32 +125,127 @@ render_two_level_impl(#box{id = Id, children = Children, border = Border, title 
     ];
 render_two_level_impl(#button{id = Id} = Button, Bounds, _Container, Child, Opts) ->
     HoveredId = maps:get(hovered_id, Opts, undefined),
-    render_button(Button, Bounds, Id =:= Child, Id =:= HoveredId);
+    render_button(Button, Bounds, focus_matches(Id, Child), focus_matches(Id, HoveredId));
 render_two_level_impl(#input{id = Id} = Input, Bounds, _Container, Child, Opts) ->
     CursorVisible = maps:get(cursor_visible, Opts, true),
-    render_input(Input, Bounds, Id =:= Child, CursorVisible);
-render_two_level_impl(#table{id = Id} = Table, Bounds, _Container, Child, _Opts) ->
+    render_input(Input, Bounds, focus_matches(Id, Child), CursorVisible);
+render_two_level_impl(#table{id = Id} = Table, Bounds, Container, Child, Opts) ->
     %% Use nit_el_table:render which supports row_provider for virtual scrolling
-    nit_el_table:render(Table, Bounds, #{focused => Id =:= Child});
-render_two_level_impl(#tabs{id = Id} = Tabs, Bounds, Container, Child, Opts) ->
-    IsContainerFocused = Id =:= Container,
-    render_tabs_two_level(Tabs, Bounds, IsContainerFocused, Child, Opts);
-render_two_level_impl(#tree{id = Id} = Tree, Bounds, Container, _Child, _Opts) ->
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    nit_el_table:render(Table, Bounds, Opts#{focused => Focused});
+render_two_level_impl(#tabs{} = Tabs, Bounds, Container, Child, Opts) ->
+    render_tabs_two_level(Tabs, Bounds, Container, Child, Opts);
+render_two_level_impl(#tree{id = Id} = Tree, Bounds, Container, Child, Opts) ->
     %% Tree is a container - pass focus info to element renderer
-    IsContainerFocused = Id =:= Container,
-    render_with_opts(Tree, Bounds, #{focused => IsContainerFocused});
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    render_with_opts(Tree, Bounds, Opts#{focused => Focused});
 render_two_level_impl(#modal{} = Modal, Bounds, _Container, Child, Opts) ->
     render_modal(Modal, Bounds, Child, Opts);
+render_two_level_impl(#scroll{} = Scroll, Bounds, Container, Child, Opts) ->
+    %% The viewport owns clipping/layout; its child renderer retains focus IDs
+    %% rather than applying a single focused flag to the whole subtree.
+    RenderChild = fun(Element, ChildBounds, _ChildOpts) ->
+        render_two_level_impl(Element, ChildBounds, Container, Child, Opts)
+    end,
+    nit_el_scroll:render(Scroll, Bounds, Opts#{render_child => RenderChild});
 render_two_level_impl(Element, Bounds, _Container, _Child, _Opts) ->
     render(Element, Bounds).
 
 render_children_two_level(Children, Bounds, Container, Child, Opts) ->
     [render_two_level_impl(C, Bounds, Container, Child, Opts) || C <- Children].
 
+focus_matches(undefined, _FocusedId) -> false;
+focus_matches(Id, FocusedId) -> Id =:= FocusedId.
+
+%% Search only the rendered subtree, including visible ancestors and the active
+%% tab. Keep this separate from navigation so focus visuals add no Tab stops.
+visible_focus(_Element, _Bounds, _Clip, undefined, undefined) -> false;
+visible_focus(Element, _Bounds, _Clip, _Container, _Child)
+  when element(#box.visible, Element) =:= false -> false;
+visible_focus(Element, Bounds, Clip, Container, Child)
+  when is_tuple(Element), tuple_size(Element) >= #box.on_unmount ->
+    Region = focus_region(Element, Bounds),
+    case intersect_bounds(Region, Clip) of
+        #bounds{width = W, height = H} when W =< 0; H =< 0 -> false;
+        _ ->
+            Id = element(#box.id, Element),
+            focus_matches(Id, Container) orelse focus_matches(Id, Child) orelse
+                visible_focus_children(Element, Bounds, Clip, Container, Child)
+    end;
+visible_focus(_, _, _, _, _) -> false.
+
+focus_region(#scroll{}, Bounds) -> Bounds;
+focus_region(Element, Bounds) ->
+    X = element(#box.x, Element),
+    Y = element(#box.y, Element),
+    Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y,
+        width = nit_ansi:resolve_size(element(#box.width, Element), Bounds#bounds.width - X),
+        height = nit_ansi:resolve_size(element(#box.height, Element), Bounds#bounds.height - Y)}.
+
+visible_focus_children(#box{border = none, x = X, y = Y} = Box, Bounds, Clip, Container, Child) ->
+    ChildBounds = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+    visible_focus_children_at(Box, ChildBounds, Clip, Container, Child);
+visible_focus_children(#box{} = Box, Bounds, Clip, Container, Child) ->
+    Region = focus_region(Box, Bounds),
+    ChildBounds = Region#bounds{x = Region#bounds.x + 1, y = Region#bounds.y + 1,
+        width = max(0, Region#bounds.width - 2), height = max(0, Region#bounds.height - 2)},
+    visible_focus_children_at(Box, ChildBounds, Clip, Container, Child);
+visible_focus_children(#tabs{x = X, y = Y, width = W, height = H} = Tabs,
+                       Bounds, Clip, Container, Child) ->
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
+    ChildBounds = #bounds{x = Bounds#bounds.x + X + 1, y = Bounds#bounds.y + Y + 2,
+        width = max(0, Width - 2), height = max(1, Height - 3)},
+    Width > 2 andalso Height >= 3 andalso
+        visible_focus_children_at(Tabs, ChildBounds, Clip, Container, Child);
+visible_focus_children(#vbox{children = Children, spacing = Spacing, x = X, y = Y},
+                       Bounds, Clip, Container, Child) ->
+    Heights = nit_layout:calculate_vbox_heights(Children, Bounds, Spacing, Y),
+    Start = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+    visible_focus_stack(Children, Heights, Start, Spacing, vertical, Clip, Container, Child);
+visible_focus_children(#hbox{children = Children, spacing = Spacing, x = X, y = Y},
+                       Bounds, Clip, Container, Child) ->
+    Widths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
+    Start = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+    visible_focus_stack(Children, Widths, Start, Spacing, horizontal, Clip, Container, Child);
+visible_focus_children(#scroll{children = Children, offset = Offset} = Scroll,
+                       Bounds, Clip, Container, Child) ->
+    ViewHeight = max(1, Bounds#bounds.height),
+    {Width, TotalHeight} = nit_el_scroll:content_size(Scroll, Bounds),
+    SafeOffset = min(max(0, Offset), max(0, TotalHeight - ViewHeight)),
+    LayoutBounds = #bounds{width = Width, height = max(ViewHeight, TotalHeight)},
+    Heights = nit_layout:calculate_vbox_heights(Children, LayoutBounds, 0),
+    Start = LayoutBounds#bounds{x = Bounds#bounds.x, y = Bounds#bounds.y - SafeOffset},
+    visible_focus_stack(Children, Heights, Start, 0, vertical,
+                        intersect_bounds(Bounds, Clip), Container, Child);
+visible_focus_children(Element, Bounds, Clip, Container, Child) ->
+    visible_focus_children_at(Element, Bounds, Clip, Container, Child).
+
+visible_focus_children_at(Element, Bounds, Clip, Container, Child) ->
+    lists:any(fun(Elem) -> visible_focus(Elem, Bounds, Clip, Container, Child) end,
+              nit_element:children(Element)).
+
+visible_focus_stack([], [], _Bounds, _Spacing, _Axis, _Clip, _Container, _Child) -> false;
+visible_focus_stack([Elem | Rest], [Size | Sizes], Bounds, Spacing, Axis, Clip, Container, Child) ->
+    {ChildBounds, NextBounds} = case Axis of
+        vertical -> {Bounds#bounds{height = Size}, Bounds#bounds{y = Bounds#bounds.y + Size + Spacing}};
+        horizontal -> {Bounds#bounds{width = Size}, Bounds#bounds{x = Bounds#bounds.x + Size + Spacing}}
+    end,
+    visible_focus(Elem, ChildBounds, Clip, Container, Child) orelse
+        visible_focus_stack(Rest, Sizes, NextBounds, Spacing, Axis, Clip, Container, Child).
+
+intersect_bounds(A, B) ->
+    X = max(A#bounds.x, B#bounds.x),
+    Y = max(A#bounds.y, B#bounds.y),
+    #bounds{x = X, y = Y,
+        width = max(0, min(A#bounds.x + A#bounds.width, B#bounds.x + B#bounds.width) - X),
+        height = max(0, min(A#bounds.y + A#bounds.height, B#bounds.y + B#bounds.height) - Y)}.
+
 %% Tabs with two-level focus
-render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
+render_tabs_two_level(#tabs{id = Id, tabs = TabList, active_tab = ActiveTab0,
                             style = Style, x = X, y = Y, width = W, height = H},
-                      Bounds, IsContainerFocused, FocusedChild, Opts) ->
+                      Bounds, Container, FocusedChild, Opts) ->
+    IsContainerFocused = focus_matches(Id, Container),
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = tabs_size(W, Bounds#bounds.width - X),
@@ -169,7 +277,7 @@ render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
     end,
     %% Heights 1/2 are header-only bars: never render children outside them.
     ContentOutput = case Width > 2 andalso Height >= 3 of
-        true -> [render_two_level_impl(C, ContentBounds, undefined, undefined, Opts) || C <- ActiveContent];
+        true -> [render_two_level_impl(C, ContentBounds, Container, FocusedChild, Opts) || C <- ActiveContent];
         false -> []
     end,
     [Border, TabHeaders, ContentOutput].
@@ -178,7 +286,7 @@ render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsConta
     {Headers, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurX}) ->
             IsActive = Id =:= ActiveTab,
-            IsFocused = Id =:= FocusedChild andalso IsContainerFocused,
+            IsFocused = focus_matches(Id, FocusedChild) andalso IsContainerFocused,
             TabStyle = if
                 IsFocused ->
                     %% Focused tab (arrow navigated to it)
@@ -273,7 +381,7 @@ render_focused_styled(#box{border = Border, title = Title, children = Children,
 render_focused_styled(#text{} = Text, Bounds, _FocusedId, BaseStyle) ->
     nit_el_text:render(Text, Bounds, #{base_style => BaseStyle});
 render_focused_styled(#button{id = Id} = Button, Bounds, FocusedId, BaseStyle) ->
-    render_button_styled(Button, Bounds, Id =:= FocusedId, BaseStyle);
+    render_button_styled(Button, Bounds, focus_matches(Id, FocusedId), BaseStyle);
 render_focused_styled(#input{id = Id} = Input, Bounds, FocusedId, BaseStyle) ->
     render_input_styled(Input, Bounds, Id =:= FocusedId, BaseStyle);
 render_focused_styled(#tabs{} = Tabs, Bounds, FocusedId, BaseStyle) ->
@@ -286,7 +394,8 @@ render_focused_styled(_Element, _Bounds, _FocusedId, _BaseStyle) ->
 render_children_styled(Children, Bounds, FocusedId, BaseStyle) ->
     [render_focused_styled(Child, Bounds, FocusedId, BaseStyle) || Child <- Children].
 
-render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, Focused, BaseStyle) ->
+render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width = W,
+                             focused_style = FocusedStyle}, Bounds, Focused, BaseStyle) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     LabelBin = iolist_to_binary([Label]),
@@ -296,7 +405,7 @@ render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width =
         fill -> Bounds#bounds.width - X;
         _ -> W
     end,
-    FocusStyle = button_state_style(Style, Focused, false),
+    FocusStyle = button_state_style(Style, Focused, false, FocusedStyle),
     MergedStyle = maps:merge(FocusStyle, BaseStyle),
     Padding = max(0, Width - LabelLen),
     LeftPad = Padding div 2,
@@ -368,7 +477,8 @@ render_table_styled(#table{} = Table, Bounds, BaseStyle) ->
 %% Internal - Button Rendering
 %%====================================================================
 
-render_button(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, Focused, Hovered) ->
+render_button(#button{label = Label, style = Style, x = X, y = Y, width = W,
+                      focused_style = FocusedStyle}, Bounds, Focused, Hovered) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     LabelBin = iolist_to_binary([Label]),
@@ -378,7 +488,7 @@ render_button(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bo
         fill -> Bounds#bounds.width - X;
         _ -> W
     end,
-    FocusStyle = button_state_style(Style, Focused, Hovered),
+    FocusStyle = button_state_style(Style, Focused, Hovered, FocusedStyle),
     Padding = max(0, Width - LabelLen),
     LeftPad = Padding div 2,
     RightPad = Padding - LeftPad,
@@ -456,12 +566,12 @@ render_modal(#modal{title = Title, children = Children, border = Border,
 button_padding_width() ->
     4.
 
-button_state_style(Style, true, _Hovered) ->
-    maps:merge(Style, #{bold => true, underline => true});
-button_state_style(Style, false, true) ->
+button_state_style(Style, true, _Hovered, FocusedStyle) ->
+    maps:merge(Style, FocusedStyle);
+button_state_style(Style, false, true, _FocusedStyle) ->
     case maps:is_key(bg, Style) of
         true -> maps:merge(Style, #{bold => true, underline => true});
         false -> maps:merge(Style, #{bg => bright_black, bold => true})
     end;
-button_state_style(Style, false, false) ->
+button_state_style(Style, false, false, _FocusedStyle) ->
     Style.

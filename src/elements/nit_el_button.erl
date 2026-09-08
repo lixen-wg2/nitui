@@ -19,7 +19,8 @@
 -spec render(#button{}, #bounds{}, map()) -> iolist().
 render(#button{visible = false}, _Bounds, _Opts) ->
     [];
-render(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, Opts) ->
+render(#button{label = Label, style = Style, x = X, y = Y, width = W,
+               focused_style = FocusedStyle}, Bounds, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Focused = maps:get(focused, Opts, false),
@@ -34,7 +35,7 @@ render(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, O
         _ -> W
     end,
     
-    StateStyle = button_state_style(Style, Focused, Hovered),
+    StateStyle = button_state_style(Style, Focused, Hovered, FocusedStyle),
     MergedStyle = maps:merge(StateStyle, BaseStyle),
     
     Padding = max(0, Width - LabelLen),
@@ -70,12 +71,12 @@ fixed_width(#button{width = W}) -> W.
 button_padding_width() ->
     4.
 
-button_state_style(Style, true, _Hovered) ->
-    maps:merge(Style, #{bold => true, underline => true});
-button_state_style(Style, false, true) ->
+button_state_style(Style, true, _Hovered, FocusedStyle) ->
+    maps:merge(Style, FocusedStyle);
+button_state_style(Style, false, true, _FocusedStyle) ->
     case maps:is_key(bg, Style) of
         true -> maps:merge(Style, #{bold => true, underline => true});
         false -> maps:merge(Style, #{bg => bright_black, bold => true})
     end;
-button_state_style(Style, false, false) ->
+button_state_style(Style, false, false, _FocusedStyle) ->
     Style.

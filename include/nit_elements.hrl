@@ -58,7 +58,10 @@
     ?ELEMENT_BASE,
     border = none :: none | single | double | rounded,
     title = undefined :: undefined | binary() | string(),
-    children = [] :: [tuple()]  %% Child elements
+    children = [] :: [tuple()],  %% Child elements
+    focus_within = false :: boolean(),     %% Highlight when a visible descendant has focus
+    focused_border = undefined :: undefined | single | double | rounded,
+    focused_style = #{fg => yellow, bold => true} :: map()
 }).
 
 %% Panel element - simple container without border
@@ -89,7 +92,8 @@
 -record(button, {
     ?ELEMENT_BASE,
     label = <<>> :: binary() | string(),
-    on_click = undefined :: undefined | {atom(), atom()} | fun()  %% {Module, Function} or fun()
+    on_click = undefined :: undefined | {atom(), atom()} | fun(),  %% {Module, Function} or fun()
+    focused_style = #{bold => true, underline => true} :: map()
 }).
 
 %% Input element - text input field
@@ -149,7 +153,9 @@
     controlled = false :: boolean(),       %% Rebuild uses new selection/scroll/sort, not previous widget state
     header_separator = true :: boolean(),  %% Horizontal rule below header (false = one-line header)
     header_style = #{} :: map(),            %% Overrides table style and default bold on header only
-    column_separator = " " :: binary() | string() %% Between columns, e.g. <<"│"/utf8>>
+    column_separator = " " :: binary() | string(), %% Between columns, e.g. <<"│"/utf8>>
+    selected_style = #{bg => cyan, fg => black} :: map(),
+    focused_selected_style = #{bg => white, fg => black, bold => true} :: map()
 }).
 
 %% Tab definition for tabs widget
@@ -248,7 +254,10 @@
     offset = 0 :: non_neg_integer(),       %% Scroll offset for clipped trees
     indent = 2 :: pos_integer(),           %% Indentation per level
     show_lines = true :: boolean(),        %% Show tree lines (├─, └─, │)
-    on_select = undefined :: undefined | {atom(), atom()} | fun()
+    on_select = undefined :: undefined | {atom(), atom()} | fun(),
+    selected_style = #{bg => white, fg => black} :: map(),
+    focused_selected_style = #{bg => white, fg => black} :: map(),
+    full_row_selection = false :: boolean() %% Include prefix and padding in selection
 }).
 
 %% Scroll container - scrollable viewport for content

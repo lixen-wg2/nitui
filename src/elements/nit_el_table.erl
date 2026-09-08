@@ -33,6 +33,10 @@ render(#table{} = Table0, Bounds, Opts) ->
     Focused = maps:get(focused, Opts, false),
     BaseStyle = maps:get(base_style, Opts, #{}),
     MergedStyle = maps:merge(Style, BaseStyle),
+    SelectionStyle = case Focused of
+        true -> Table0#table.focused_selected_style;
+        false -> Table0#table.selected_style
+    end,
 
     Width = case W of
         auto -> Bounds#bounds.width - X;
@@ -66,7 +70,7 @@ render(#table{} = Table0, Bounds, Opts) ->
                               ActualX, ActualY, BorderOffset, ContentWidth),
 
     DataRows = render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
-                                   Zebra, Focused, MergedStyle, ActualX, ActualY,
+                                   Zebra, SelectionStyle, MergedStyle, ActualX, ActualY,
                                    BorderOffset, HeaderOffset2, ContentWidth, ColumnSeparator),
 
     EmptyRows = render_empty_rows(length(VisibleRows), VisibleHeight, MergedStyle,
@@ -130,17 +134,15 @@ render_header(#table{columns = Columns, header_style = HeaderStyle,
 
 %% Render already-fetched visible rows (works for both static and virtual scrolling)
 render_visible_rows(VisibleRows, Columns, ColWidths, SelectedRow, ScrollOffset,
-                    Zebra, Focused, Style, ActualX, ActualY, BorderOffset, HeaderOffset2,
+                    Zebra, SelectionStyle, Style, ActualX, ActualY, BorderOffset, HeaderOffset2,
                     ContentWidth, ColumnSeparator) ->
     lists:map(
         fun({RowIdx, RowData}) ->
             AbsRowIdx = ScrollOffset + RowIdx,
             IsSelected = AbsRowIdx =:= SelectedRow,
             RowStyle = if
-                IsSelected andalso Focused ->
-                    maps:merge(Style, #{bg => white, fg => black, bold => true});
                 IsSelected ->
-                    maps:merge(Style, #{bg => cyan, fg => black});
+                    maps:merge(Style, SelectionStyle);
                 Zebra andalso (AbsRowIdx rem 2 =:= 1) ->
                     maps:merge(Style, #{dim => true});
                 true -> Style
