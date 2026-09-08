@@ -140,8 +140,8 @@ render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
                       Bounds, IsContainerFocused, FocusedChild, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
-    Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
     %% Default active tab to first if undefined
     ActiveTab = case ActiveTab0 of
         undefined -> case TabList of [#tab{id = First}|_] -> First; [] -> undefined end;
@@ -152,21 +152,29 @@ render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
         IsContainerFocused -> maps:merge(Style, #{fg => yellow, bold => true});
         true -> Style
     end,
-    Border = nit_ansi:render_box_border(ActualX, ActualY, Width, Height, BorderStyle, undefined, single),
+    Border = render_tabs_border(ActualX, ActualY, Width, Height, BorderStyle),
     %% Tab headers with focus indicator (inside the top border)
-    TabHeaders = render_tab_headers_two_level(TabList, ActiveTab, FocusedChild,
-                                               ActualX + 1, ActualY, Style, IsContainerFocused),
+    TabHeaders = case Width > 1 andalso Height > 0 of
+        true -> render_tab_headers_two_level(TabList, ActiveTab, FocusedChild,
+                    ActualX + 1, ActualY, Style, IsContainerFocused,
+                    ActualX + Width);
+        false -> []
+    end,
     %% Active tab content (inside the border, below tab bar which is on row 1)
     ContentBounds = #bounds{x = ActualX + 1, y = ActualY + 2,
-                            width = Width - 2, height = max(1, Height - 3)},
+                            width = max(0, Width - 2), height = max(1, Height - 3)},
     ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
         #tab{content = Content} -> Content;
         false -> []
     end,
-    ContentOutput = [render_two_level_impl(C, ContentBounds, undefined, undefined, Opts) || C <- ActiveContent],
+    %% Heights 1/2 are header-only bars: never render children outside them.
+    ContentOutput = case Width > 2 andalso Height >= 3 of
+        true -> [render_two_level_impl(C, ContentBounds, undefined, undefined, Opts) || C <- ActiveContent];
+        false -> []
+    end,
     [Border, TabHeaders, ContentOutput].
 
-render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsContainerFocused) ->
+render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsContainerFocused, RightEdge) ->
     {Headers, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurX}) ->
             IsActive = Id =:= ActiveTab,
@@ -184,15 +192,27 @@ render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsConta
             end,
             LabelBin = iolist_to_binary([<<" ">>, Label, <<" ">>]),
             LabelLen = byte_size(LabelBin),
-            Header = [
-                nit_ansi:move_to(Y, CurX),
-                nit_ansi:style_to_ansi(TabStyle),
-                LabelBin,
-                nit_ansi:reset_style()
-            ],
+            Header = render_tab_header(LabelBin, CurX, Y, TabStyle, RightEdge),
             {[Acc, Header], CurX + LabelLen + 1}
         end, {[], X}, Tabs),
     Headers.
+
+%% Clamp exhausted/invalid bounds without changing the normal tab layout.
+tabs_size(Size, Available) ->
+    max(0, min(nit_ansi:resolve_size(Size, Available), Available)).
+
+render_tabs_border(X, Y, Width, Height, Style) when Width >= 2, Height >= 3 ->
+    nit_ansi:render_box_border(X, Y, Width, Height, Style, undefined, single);
+render_tabs_border(_X, _Y, _Width, _Height, _Style) ->
+    [].
+
+render_tab_header(Label, X, Y, Style, RightEdge) ->
+    VisibleLabel = nit_ansi:truncate_content(Label, RightEdge - X),
+    case VisibleLabel of
+        <<>> -> [];
+        _ -> [nit_ansi:move_to(Y, X), nit_ansi:style_to_ansi(Style),
+              VisibleLabel, nit_ansi:reset_style()]
+    end.
 
 %%====================================================================
 %% Internal - Styled Rendering (with base style modifier for dimming)
@@ -297,28 +317,35 @@ render_tabs_styled(#tabs{tabs = TabList, active_tab = ActiveTab0,
                    Bounds, _FocusedId, BaseStyle) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
-    Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
     ActiveTab = case ActiveTab0 of
         undefined -> case TabList of [#tab{id = First}|_] -> First; [] -> undefined end;
         _ -> ActiveTab0
     end,
     MergedStyle = maps:merge(Style, BaseStyle),
     %% Draw border
-    Border = nit_ansi:render_box_border(ActualX, ActualY, Width, Height, MergedStyle, undefined, single),
+    Border = render_tabs_border(ActualX, ActualY, Width, Height, MergedStyle),
     %% Tab headers
-    TabHeaders = render_tab_headers_styled(TabList, ActiveTab, ActualX + 1, ActualY, MergedStyle),
+    TabHeaders = case Width > 1 andalso Height > 0 of
+        true -> render_tab_headers_styled(TabList, ActiveTab, ActualX + 1, ActualY,
+                    MergedStyle, ActualX + Width);
+        false -> []
+    end,
     %% Content
     ContentBounds = #bounds{x = ActualX + 1, y = ActualY + 2,
-                            width = Width - 2, height = max(1, Height - 3)},
+                            width = max(0, Width - 2), height = max(1, Height - 3)},
     ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
         #tab{content = Content} -> Content;
         false -> []
     end,
-    ContentOutput = render_children_styled(ActiveContent, ContentBounds, undefined, BaseStyle),
+    ContentOutput = case Width > 2 andalso Height >= 3 of
+        true -> render_children_styled(ActiveContent, ContentBounds, undefined, BaseStyle);
+        false -> []
+    end,
     [Border, TabHeaders, ContentOutput].
 
-render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style) ->
+render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style, RightEdge) ->
     {Headers, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurX}) ->
             LabelBin = iolist_to_binary([Label]),
@@ -327,12 +354,8 @@ render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style) ->
                 Id =:= ActiveTab -> maps:merge(Style, #{bg => cyan, fg => black});
                 true -> Style
             end,
-            Header = [
-                nit_ansi:move_to(Y, CurX),
-                nit_ansi:style_to_ansi(TabStyle),
-                <<" ">>, LabelBin, <<" ">>,
-                nit_ansi:reset_style()
-            ],
+            Header = render_tab_header(iolist_to_binary([<<" ">>, LabelBin, <<" ">>]),
+                                       CurX, Y, TabStyle, RightEdge),
             {[Acc, Header], CurX + LabelLen + 3}
         end, {[], X}, Tabs),
     Headers.
