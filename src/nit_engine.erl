@@ -846,6 +846,7 @@ call_handler(Cb, Event, US) ->
                 {list_select, _, _, _} -> Event;
                 {table_select, _, _, _} -> Event;
                 {table_activate, _, _, _} -> Event;
+                {table_cell_click, _, _, _, _} -> Event;
                 {table_header_click, _, _} -> Event;
                 {tab_change, _, _} -> Event;
                 {tree_activate, _, _} -> Event;

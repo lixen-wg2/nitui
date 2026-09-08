@@ -156,7 +156,11 @@
     column_separator = " " :: binary() | string(), %% Between columns, e.g. <<"│"/utf8>>
     selected_style = #{bg => cyan, fg => black} :: map(),
     focused_selected_style = #{bg => white, fg => black, bold => true} :: map(),
-    activate_on_click = false :: boolean() %% Select and activate the clicked row in one event
+    activate_on_click = false :: boolean(), %% Select and activate the clicked row in one event
+    %% Column IDs whose data cells select/focus and emit only
+    %% {table_cell_click, TableId, RowIdx, ColumnId, RowData} (RowIdx is 1-based).
+    %% Includes cell padding, not separators/trailing space; headers still sort.
+    clickable_columns = [] :: [term()]
 }).
 
 %% Tab definition for tabs widget

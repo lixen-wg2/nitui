@@ -522,28 +522,7 @@ handle_activate(State = #nit_state{bounds = _Bounds, callback = Cb, user_state =
             %% Enter on a table - activate the selected row
             RowData = nit_engine:table_row_data(Table, SelRow),
             Event = {table_activate, Id, SelRow, RowData},
-            case call_handler_with_debug(Cb, Event, US, State) of
-                {unhandled, NewUS, NewState} ->
-                    apply_view_update(NewUS, NewState, Tree);
-                {handled, {noreply, NewUS}, _} ->
-                    apply_view_update(NewUS, State, Tree);
-                {handled, {modal, Modal, NewUS}, _} ->
-                    NewState = activate_modal(State#nit_state{user_state = NewUS}, Modal),
-                    FinalState = render_diff(NewState),
-                    {noreply, FinalState};
-                {handled, {switch, NewModule, Args}, _} ->
-                    do_switch(NewModule, Args, State);
-                {handled, {push, NewModule, Args}, _} ->
-                    do_push(NewModule, Args, State);
-                {handled, {push, NewModule, Args, NewUS}, _} ->
-                    do_push(NewModule, Args, State#nit_state{user_state = NewUS});
-                {handled, pop, _} ->
-                    do_pop(State);
-                {handled, {stop, Reason, _NewUS}, _} ->
-                    {stop, Reason, State};
-                {handled, Other, _} ->
-                    handle_special_result(Other, State, Tree)
-            end;
+            handle_table_event(Event, Cb, US, State, Tree);
         #tree{id = Id, selected = SelId} when SelId =/= undefined ->
             handle_tree_activate(Id, SelId, Cb, US, State, Tree);
         #tree{} ->
@@ -942,6 +921,8 @@ handle_scroll(Dir, Lines, Col, Row, State = #nit_state{tree = Tree, bounds = Bou
             scroll_list(Dir, Lines, ListId, State);
         {table_row, TableId, _RowIdx} ->
             scroll_table(Dir, Lines, TableId, State);
+        {table_cell, TableId, _RowIdx, _ColumnId} ->
+            scroll_table(Dir, Lines, TableId, State);
         {table, TableId} ->
             scroll_table(Dir, Lines, TableId, State);
         {tree_toggle, TreeId, _NodeId} ->
@@ -1140,29 +1121,10 @@ handle_mouse_click(Col, Row, State = #nit_state{tree = Tree, bounds = Bounds,
                     end;
                 _ -> {noreply, State}
             end;
+        {table_cell, TableId, RowIdx, ColumnId} ->
+            handle_table_click(TableId, RowIdx, {cell, ColumnId}, State);
         {table_row, TableId, RowIdx} ->
-            %% Click on a specific table row.
-            case nit_focus:find_element(Tree, TableId) of
-                #table{} = Table ->
-                    Container = nit_engine:focus_container_for(Tree, TableId),
-                    NewTable = Table#table{selected_row = RowIdx},
-                    NewTree = nit_tree:update(Tree, TableId, NewTable),
-                    FocusedState = State#nit_state{tree = NewTree, focused_container = Container,
-                                                  focused_child = TableId},
-                    case Table#table.activate_on_click orelse
-                         (Table#table.activate_on_reclick andalso
-                          Table#table.selected_row =:= RowIdx) of
-                        true ->
-                            %% Activate the clicked selection without an intervening
-                            %% table_select callback or view rebuild.
-                            handle_activate(FocusedState);
-                        false ->
-                            Event = {table_select, TableId, RowIdx, nit_engine:table_row_data(NewTable, RowIdx)},
-                            NewUS = nit_engine:selection_user_state(Cb, Event, US),
-                            apply_view_update(NewUS, FocusedState, NewTree)
-                    end;
-                _ -> {noreply, State}
-            end;
+            handle_table_click(TableId, RowIdx, row, State);
         {table, TableId} ->
             %% Clicked on table but not on a specific row
             Container = nit_engine:focus_container_for(Tree, TableId),
@@ -1234,6 +1196,62 @@ handle_mouse_click(Col, Row, State = #nit_state{tree = Tree, bounds = Bounds,
             handle_shortcut_click(Key, State);
         not_found ->
             forward_event({mouse, click, left, Col, Row}, State, Tree)
+    end.
+
+%% Row and cell clicks share native selection/focus before notifying the app.
+handle_table_click(TableId, RowIdx, Target,
+                    State = #nit_state{tree = Tree, callback = Cb, user_state = US}) ->
+    case nit_focus:find_element(Tree, TableId) of
+        #table{} = Table ->
+            Container = nit_engine:focus_container_for(Tree, TableId),
+            NewTable = Table#table{selected_row = RowIdx},
+            NewTree = nit_tree:update(Tree, TableId, NewTable),
+            FocusedState = State#nit_state{tree = NewTree, focused_container = Container,
+                                          focused_child = TableId},
+            case Target of
+                {cell, ColumnId} ->
+                    Event = {table_cell_click, TableId, RowIdx, ColumnId,
+                             nit_engine:table_row_data(NewTable, RowIdx)},
+                    handle_table_event(Event, Cb, US, FocusedState, NewTree);
+                row ->
+                    case Table#table.activate_on_click orelse
+                         (Table#table.activate_on_reclick andalso
+                          Table#table.selected_row =:= RowIdx) of
+                        true ->
+                            %% No intervening table_select callback or view rebuild.
+                            handle_activate(FocusedState);
+                        false ->
+                            Event = {table_select, TableId, RowIdx,
+                                     nit_engine:table_row_data(NewTable, RowIdx)},
+                            NewUS = nit_engine:selection_user_state(Cb, Event, US),
+                            apply_view_update(NewUS, FocusedState, NewTree)
+                    end
+            end;
+        _ -> {noreply, State}
+    end.
+
+handle_table_event(Event, Cb, US, State, Tree) ->
+    case call_handler_with_debug(Cb, Event, US, State) of
+        {unhandled, NewUS, NewState} ->
+            apply_view_update(NewUS, NewState, Tree);
+        {handled, {noreply, NewUS}, _} ->
+            apply_view_update(NewUS, State, Tree);
+        {handled, {modal, Modal, NewUS}, _} ->
+            NewState = activate_modal(State#nit_state{user_state = NewUS}, Modal),
+            FinalState = render_diff(NewState),
+            {noreply, FinalState};
+        {handled, {switch, NewModule, Args}, _} ->
+            do_switch(NewModule, Args, State);
+        {handled, {push, NewModule, Args}, _} ->
+            do_push(NewModule, Args, State);
+        {handled, {push, NewModule, Args, NewUS}, _} ->
+            do_push(NewModule, Args, State#nit_state{user_state = NewUS});
+        {handled, pop, _} ->
+            do_pop(State);
+        {handled, {stop, Reason, _NewUS}, _} ->
+            {stop, Reason, State};
+        {handled, Other, _} ->
+            handle_special_result(Other, State, Tree)
     end.
 
 handle_tree_activate(TreeId, NodeId, Cb, US, State, MergeFromTree) ->

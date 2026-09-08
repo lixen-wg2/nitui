@@ -34,6 +34,8 @@
 -type tab_change_event() :: {tab_change, Id :: term(), TabId :: term()}.
 -type table_activate_event() :: {table_activate, Id :: term(), RowIndex :: pos_integer(), RowData :: list()}.
 -type table_select_event() :: {table_select, Id :: term(), RowIndex :: pos_integer(), RowData :: list()}.
+-type table_cell_click_event() :: {table_cell_click, Id :: term(), RowIndex :: pos_integer(),
+                                  ColumnId :: term(), RowData :: list()}.
 -type tree_activate_event() :: {tree_activate, Id :: term(), NodeId :: term()}.
 -type tree_select_event() :: {tree_select, Id :: term(), NodeId :: term()}.
 -type generic_event() :: {event, term()}.
@@ -46,6 +48,7 @@
                | tab_change_event()
                | table_activate_event()
                | table_select_event()
+               | table_cell_click_event()
                | tree_activate_event()
                | tree_select_event()
                | generic_event()

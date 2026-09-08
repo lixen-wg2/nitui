@@ -13,6 +13,7 @@
     {tab, term(), term()} | {button, term()} | {input, term()} |
     {box, term()} | {scroll, term()} | {tabs_container, term()} | {table, term()} |
     {table_header, term(), term()} | {table_row, term(), integer()} | {list, term()} |
+    {table_cell, term(), pos_integer(), term()} |
     {tree, term()} | {tree_node, term(), term()} | {tree_toggle, term(), term()} |
     {status_bar_item, binary() | string()} |
     {list_item, term(), integer()} | not_found.
@@ -155,7 +156,20 @@ find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Borde
             ClickedRowIdx = Row - ActualY - BorderOffset - HeaderOffset + ScrollOffset,
             if
                 ClickedRowIdx >= 1, ClickedRowIdx =< ActualTotalRows ->
-                    {table_row, Id, ClickedRowIdx};
+                    %% Only visible, rendered cells opt in. Keep the legacy row
+                    %% hit (including padding/border fallbacks) everywhere else.
+                    case Table#table.clickable_columns =/= [] andalso Table#table.visible
+                         andalso ClickedRowIdx - ScrollOffset =< length(VisibleRows)
+                         andalso Col > ActualX + BorderOffset
+                         andalso Col > Bounds#bounds.x
+                         andalso Col =< Bounds#bounds.x + Bounds#bounds.width
+                         andalso Row > Bounds#bounds.y
+                         andalso Row =< Bounds#bounds.y + Bounds#bounds.height of
+                        true ->
+                            table_row_hit(Table, ClickedRowIdx, ColWidths,
+                                          Col - ActualX - BorderOffset, SeparatorWidth);
+                        false -> {table_row, Id, ClickedRowIdx}
+                    end;
                 true ->
                     {table, Id}
             end;
@@ -345,19 +359,36 @@ find_in_children_vbox([{Child, ChildHeight} | Rest], Col, Row, Bounds, Spacing) 
         Found -> Found
     end.
 
-find_clicked_table_column([], [], _ClickCol, _SeparatorWidth) ->
+table_row_hit(#table{id = Id, columns = Columns, clickable_columns = Clickable},
+              RowIdx, ColWidths, ClickCol, SeparatorWidth) ->
+    case find_clicked_table_column(Columns, ColWidths, ClickCol, SeparatorWidth, false) of
+        {ok, ColumnId} ->
+            case lists:member(ColumnId, Clickable) of
+                true -> {table_cell, Id, RowIdx, ColumnId};
+                false -> {table_row, Id, RowIdx}
+            end;
+        not_found -> {table_row, Id, RowIdx}
+    end.
+
+%% Headers retain ownership of their following separator; data cells do not.
+find_clicked_table_column(Columns, Widths, ClickCol, SeparatorWidth) ->
+    find_clicked_table_column(Columns, Widths, ClickCol, SeparatorWidth, true).
+
+find_clicked_table_column([], [], _ClickCol, _SeparatorWidth, _IncludeSeparator) ->
     not_found;
-find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol, _SeparatorWidth) ->
+find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol, _SeparatorWidth,
+                           _IncludeSeparator) ->
     if
         ClickCol >= 1, ClickCol =< Width -> {ok, Id};
         true -> not_found
     end;
 find_clicked_table_column([#table_col{id = Id} | Rest], [Width | RestWidths], ClickCol,
-                           SeparatorWidth) ->
+                           SeparatorWidth, IncludeSeparator) ->
+    HitWidth = case IncludeSeparator of true -> Width + SeparatorWidth; false -> Width end,
     if
-        ClickCol >= 1, ClickCol =< Width + SeparatorWidth ->
+        ClickCol >= 1, ClickCol =< HitWidth ->
             {ok, Id};
         true ->
             find_clicked_table_column(Rest, RestWidths, ClickCol - Width - SeparatorWidth,
-                                      SeparatorWidth)
+                                      SeparatorWidth, IncludeSeparator)
     end.
