@@ -232,14 +232,9 @@ resolve_active_tab(Active, _) -> Active.
 %% Scroll Helpers
 %%====================================================================
 
-scroll_content_height(#scroll{children = Children}, Bounds) ->
-    %% Children may return {flex, Min}; resolve to Min before summing so a
-    %% fill-height child (e.g. #text{height = fill}) does not crash with
-    %% badarith.
-    lists:sum([height_value(nit_element:height(Child, Bounds)) || Child <- Children]).
-
-height_value({flex, Min}) -> Min;
-height_value(N) when is_integer(N) -> N.
+scroll_content_height(Scroll, Bounds) ->
+    {_ContentWidth, TotalHeight} = nit_el_scroll:content_size(Scroll, Bounds),
+    TotalHeight.
 
 find_scroll_at(Tree, Col, Row, Bounds) ->
     ScrollIds = lists:reverse(collect_scroll_ids(Tree)),

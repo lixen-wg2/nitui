@@ -12,6 +12,7 @@
 -include("nit_elements.hrl").
 
 -export([render/3, height/2, width/2, fixed_width/1]).
+-export([content_size/2]).
 
 %%====================================================================
 %% nit_element callbacks
@@ -20,21 +21,9 @@
 -spec render(#scroll{}, #bounds{}, map()) -> iolist().
 render(#scroll{visible = false}, _Bounds, _Opts) ->
     [];
-render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar}, Bounds, Opts) ->
+render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar} = Scroll, Bounds, Opts) ->
     ViewHeight = max(1, Bounds#bounds.height),
-    TotalHeight0 = calculate_content_height(Children, Bounds),
-    NeedsScrollbar0 = ShowBar andalso TotalHeight0 > ViewHeight,
-
-    %% Adjust bounds for scrollbar if shown
-    ContentWidth = if NeedsScrollbar0 ->
-                          max(1, Bounds#bounds.width - 1);
-                      true ->
-                          Bounds#bounds.width
-                   end,
-    TotalHeight = case NeedsScrollbar0 of
-        true -> calculate_content_height(Children, Bounds#bounds{width = ContentWidth});
-        false -> TotalHeight0
-    end,
+    {ContentWidth, TotalHeight} = content_size(Scroll, Bounds),
     ClampedOffset = clamp_offset(Offset, TotalHeight, ViewHeight),
 
     %% Render visible portion of children
@@ -64,6 +53,19 @@ width(#scroll{width = W}, _Bounds) -> W.
 -spec fixed_width(#scroll{}) -> auto | pos_integer().
 fixed_width(#scroll{width = fill}) -> auto;
 fixed_width(#scroll{width = W}) -> W.
+
+%% @doc Content dimensions for resolved viewport bounds. Rendering, navigation
+%% and hit testing must all remeasure wrapped children after reserving the bar.
+-spec content_size(#scroll{}, #bounds{}) -> {pos_integer(), non_neg_integer()}.
+content_size(#scroll{children = Children, show_scrollbar = ShowBar}, Bounds) ->
+    TotalHeight = calculate_content_height(Children, Bounds),
+    case ShowBar andalso TotalHeight > max(1, Bounds#bounds.height) of
+        true ->
+            ContentWidth = max(1, Bounds#bounds.width - 1),
+            {ContentWidth, calculate_content_height(Children, Bounds#bounds{width = ContentWidth})};
+        false ->
+            {Bounds#bounds.width, TotalHeight}
+    end.
 
 %%====================================================================
 %% Internal functions

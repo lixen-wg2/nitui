@@ -103,6 +103,50 @@ modal_input_edit_keys_consumed_test_() ->
         ?assertEqual(Modal#modal{children = [input_tree(Value, Pos)]}, NewModal)
     end) || {Event, Value, Pos} <- [{backspace, <<"bc">>, 0}, {delete, <<"ac">>, 1}]].
 
+scroll_click_then_page_down_focuses_viewport_test_() ->
+    Scroll = #scroll{id = log_scroll, width = 5, height = 2, focusable = true,
+                     children = [#text{content = <<"abcdefghijklmnopTAIL">>, wrap = true}]},
+    %% Exercise both a top-level scroll and a child of a focusable box.
+    [?_test(begin
+        Tree = #vbox{children = [
+            #hbox{height = 2, children = [
+                #box{id = sidebar, width = 8, height = 2, focusable = true, children = [
+                    #list{id = menu, focusable = true, height = 2,
+                          items = [<<"One">>, <<"Two">>, <<"Three">>, <<"Four">>]}
+                ]},
+                Detail
+            ]}
+        ]},
+        State = #{tree => Tree, events => []},
+        %% Initially Page Down would navigate the sidebar.
+        {_, BeforeClick, undefined} =
+            nit_server:input_for_test(?MODULE, State, Tree, undefined, {key, page_down}),
+        ?assertMatch(#list{selected = 2}, nit_focus:find_element(BeforeClick, menu)),
+        ?assertMatch(#scroll{offset = 0}, nit_focus:find_element(BeforeClick, log_scroll)),
+        %% Click the second wrapped line, then page twice to the clamped end.
+        Events = [{mouse, click, left, 10, 2}, {key, page_down}, {key, page_down}],
+        {NewState, NewTree, undefined} =
+            nit_server:input_sequence_for_test(?MODULE, State, Tree, undefined, Events),
+        ?assertEqual([], maps:get(events, NewState)),
+        ?assertMatch(#list{selected = 0}, nit_focus:find_element(NewTree, menu)),
+        Scrolled = nit_focus:find_element(NewTree, log_scroll),
+        ?assertMatch(#scroll{offset = 3}, Scrolled),
+        Screen = nit_screen:from_ansi(nit_render:render(NewTree, #bounds{}), 80, 24),
+        Tail = unicode:characters_to_binary([
+            Char || Col <- lists:seq(8, 11), {Char, _} <- [nit_screen:get_cell(Screen, Col, 1)]
+        ]),
+        ?assertEqual(<<"TAIL">>, Tail)
+    end) || Detail <- [Scroll, #box{id = detail, width = 5, height = 2,
+                                    focusable = true, children = [Scroll]}]].
+
+scroll_click_does_not_swallow_button_test() ->
+    Tree = #scroll{id = log_scroll, width = 10, height = 2, focusable = true,
+                   children = [#button{id = run, focusable = true, label = <<"Run">>}]},
+    State = #{tree => Tree, events => []},
+    {NewState, _, undefined} = nit_server:input_for_test(
+        ?MODULE, State, Tree, undefined, {mouse, click, left, 2, 1}),
+    ?assertEqual([{click, run, undefined}], maps:get(events, NewState)).
+
 input_tree(Value, Pos) ->
     #box{id = box, focusable = true, children = [
         #input{id = input, focusable = true, value = Value, cursor_pos = Pos}

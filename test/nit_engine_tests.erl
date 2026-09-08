@@ -13,6 +13,43 @@ tree_nodes() ->
 root_bounds() ->
     #bounds{x = 0, y = 0, width = 40, height = 4}.
 
+scroll_content_height_accounts_for_scrollbar_wrap_test() ->
+    Bounds = #bounds{width = 5, height = 2},
+    Text = #text{content = <<"abcdefghijklmnopTAIL">>, wrap = true},
+    Scroll = #scroll{id = log_scroll, children = [Text]},
+    ?assertEqual(5, nit_engine:scroll_content_height(Scroll, Bounds)),
+    ?assertEqual(4, nit_engine:scroll_content_height(
+                      Scroll#scroll{show_scrollbar = false}, Bounds)),
+    %% Content that fits at full width must not acquire a scrollbar.
+    ?assertEqual(4, nit_engine:scroll_content_height(Scroll, Bounds#bounds{height = 4})),
+    ?assertEqual(20, nit_engine:scroll_content_height(Scroll, Bounds#bounds{width = 1})),
+    ?assertEqual(6, nit_engine:scroll_content_height(
+                      Scroll#scroll{children = [Text, #text{height = fill}]}, Bounds)),
+    ?assertEqual(0, nit_engine:scroll_content_height(Scroll#scroll{children = []}, Bounds)).
+
+scroll_page_down_reaches_final_wrapped_line_test() ->
+    Bounds = #bounds{width = 5, height = 2},
+    Scroll = #scroll{id = log_scroll, height = fill, focusable = true, children = [
+        #vbox{children = [#text{content = <<"abcdefghijklmnopTAIL">>, wrap = true}]}
+    ]},
+    Root = #vbox{children = [Scroll]},
+    {ok, Page1, unchanged} =
+        nit_engine:page_navigate_element(down, log_scroll, Root, Bounds, ?MODULE, unchanged),
+    ?assertMatch(#scroll{offset = 2}, nit_focus:find_element(Page1, log_scroll)),
+    {ok, Page2, unchanged} =
+        nit_engine:page_navigate_element(down, log_scroll, Page1, Bounds, ?MODULE, unchanged),
+    ?assertMatch(#scroll{offset = 3}, nit_focus:find_element(Page2, log_scroll)),
+    Screen = nit_screen:from_ansi(nit_render:render(Page2, Bounds), 5, 2),
+    Tail = unicode:characters_to_binary([
+        Char || Col <- lists:seq(0, 3), {Char, _} <- [nit_screen:get_cell(Screen, Col, 1)]
+    ]),
+    ?assertEqual(<<"TAIL">>, Tail),
+    ?assertEqual({ok, Page2, unchanged},
+                 nit_engine:page_navigate_element(down, log_scroll, Page2, Bounds, ?MODULE, unchanged)),
+    {ok, PageUp, unchanged} =
+        nit_engine:page_navigate_element(up, log_scroll, Page2, Bounds, ?MODULE, unchanged),
+    ?assertMatch(#scroll{offset = 1}, nit_focus:find_element(PageUp, log_scroll)).
+
 scroll_target_element_returns_tree_test() ->
     Tree = #tree{id = nav_tree, focusable = true, nodes = tree_nodes()},
     ?assertEqual({tree, nav_tree}, nit_engine:scroll_target_element(Tree, nav_tree)).

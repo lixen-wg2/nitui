@@ -30,7 +30,7 @@
 -ifdef(TEST).
 %% Exercise rebuilds and input routing without starting a terminal or
 %% duplicating this module's private state record in tests.
--export([rebuild_for_test/4, input_for_test/5]).
+-export([rebuild_for_test/4, input_for_test/5, input_sequence_for_test/5]).
 -endif.
 
 -record(fullscreen, {
@@ -1061,6 +1061,13 @@ handle_mouse_click(Col, Row, State = #nit_state{tree = Tree, bounds = Bounds,
             NewState = State#nit_state{focused_container = BoxId, focused_child = FirstChild},
             FinalState = render_diff(NewState),
             {noreply, FinalState};
+        {scroll, ScrollId} ->
+            %% Focus the viewport, not an arbitrary interactive child within it.
+            Container = nit_engine:focus_container_for(Tree, ScrollId),
+            NewState0 = State#nit_state{focused_container = Container, focused_child = ScrollId},
+            NewState = update_cursor_timer(NewState0),
+            FinalState = render_diff(NewState),
+            {noreply, FinalState};
         {button, ButtonId} ->
             %% Find which container owns this button
             Container = nit_engine:focus_container_for(Tree, ButtonId),
@@ -1892,6 +1899,9 @@ rebuild_for_test(Callback, NewUS, OldTree, MergeFromTree) ->
     Rebuilt#nit_state.tree.
 
 input_for_test(Callback, US, Tree, Modal, Event) ->
+    input_sequence_for_test(Callback, US, Tree, Modal, [Event]).
+
+input_sequence_for_test(Callback, US, Tree, Modal, Events) ->
     {Container, Child, ContainerIds} = resolve_focus(Tree, undefined, undefined),
     State = #nit_state{
         callback = Callback, user_state = US, tree = Tree, bounds = #bounds{},
@@ -1899,6 +1909,9 @@ input_for_test(Callback, US, Tree, Modal, Event) ->
         container_ids = ContainerIds,
         modal = Modal, modal_focus = init_modal_focus(Modal)
     },
-    {noreply, NewState} = handle_info({input, Event}, State),
+    NewState = lists:foldl(fun(Event, Acc) ->
+        {noreply, NextState} = handle_info({input, Event}, Acc),
+        NextState
+    end, State, Events),
     {NewState#nit_state.user_state, NewState#nit_state.tree, NewState#nit_state.modal}.
 -endif.

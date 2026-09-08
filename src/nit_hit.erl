@@ -11,7 +11,7 @@
 %% Find interactive element at given screen coordinates
 -spec find_at(term(), integer(), integer(), #bounds{}) ->
     {tab, term(), term()} | {button, term()} | {input, term()} |
-    {box, term()} | {tabs_container, term()} | {table, term()} |
+    {box, term()} | {scroll, term()} | {tabs_container, term()} | {table, term()} |
     {table_header, term(), term()} | {table_row, term(), integer()} | {list, term()} |
     {tree, term()} | {tree_node, term(), term()} | {tree_toggle, term(), term()} |
     {status_bar_item, binary() | string()} |
@@ -209,8 +209,11 @@ find_at_impl(#status_bar{} = StatusBar, Col, Row, Bounds) ->
         not_found -> not_found
     end;
 
-find_at_impl(#scroll{children = Children, x = X, y = Y, width = W, height = H,
-                     offset = Offset, show_scrollbar = ShowBar}, Col, Row, Bounds) ->
+find_at_impl(#scroll{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#scroll{id = Id, children = Children, x = X, y = Y, width = W, height = H,
+                     offset = Offset, show_scrollbar = ShowBar,
+                     focusable = Focusable} = Scroll, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of
@@ -229,17 +232,24 @@ find_at_impl(#scroll{children = Children, x = X, y = Y, width = W, height = H,
             not_found;
         true ->
             ScrollBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-            TotalHeight = lists:sum([nit_element:height(Child, ScrollBounds) || Child <- Children]),
-            ContentWidth = case ShowBar andalso TotalHeight > Height of
-                true -> max(1, Width - 1);
-                false -> Width
-            end,
+            {ContentWidth, TotalHeight} = nit_el_scroll:content_size(Scroll, ScrollBounds),
             ClampedOffset = min(max(0, Offset), max(0, TotalHeight - Height)),
             ContentHeight = max(Height, TotalHeight),
             ContentBounds = #bounds{x = ActualX, y = ActualY - ClampedOffset,
                                     width = ContentWidth, height = ContentHeight},
             ChildHeights = nit_layout:calculate_vbox_heights(Children, ContentBounds, 0),
-            find_in_children_vbox(lists:zip(Children, ChildHeights), Col, Row, ContentBounds, 0)
+            %% The scrollbar covers this column, even if a child's fixed width
+            %% extends into it. Otherwise interactive children take precedence.
+            ChildHit = case ShowBar andalso TotalHeight > Height andalso
+                            Col =:= ActualX + Width of
+                true -> not_found;
+                false -> find_in_children_vbox(lists:zip(Children, ChildHeights),
+                                               Col, Row, ContentBounds, 0)
+            end,
+            case ChildHit of
+                not_found when Focusable, Id =/= undefined -> {scroll, Id};
+                Found -> Found
+            end
     end;
 
 find_at_impl(#modal{children = Children, width = W, height = H}, Col, Row, Bounds) ->
