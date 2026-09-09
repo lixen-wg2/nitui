@@ -113,49 +113,6 @@ Unknown IDs are ignored; the default empty list preserves existing row behavior.
 
 This option does not change cell styles or the existing table palette.
 
-### Disabled buttons
-
-Set `#button.enabled = false` to keep a button visible with `disabled_style`
-(default: dim bright-black) while excluding it from focus and activation.
-Disabled styling wins over focus/hover styling. Mouse, Enter, Space and status-bar
-activation cannot trigger it, even through stale focus. Hidden buttons are also
-inert. `focusable = false` is separate: an **enabled** mouse-only button remains
-clickable without taking keyboard focus. Rebuilds move focus off disabled buttons.
-
-### Constrained table columns
-
-`#table_col.width` also accepts `{fixed, N}` and `fill`:
-
-- `{fixed, N}` reserves N cells without shrinking to fit long neighboring data.
-- `fill` columns share the remaining space equally after separators, fixed columns,
-  and the preferred widths of integer/auto columns. Remainders go left to right.
-- When constrained columns are present, integer/auto columns shrink proportionally
-  if necessary; fill columns may receive zero cells. Impossible fixed budgets are
-  clipped at the right edge, not scaled. Hit testing uses these same widths.
-- Tables using only integer/auto columns retain their legacy sizing behavior.
-
-For an index/preview table, use `{fixed, 7}` for Index and `fill` for Preview.
-All table hits are clipped to their allocated bounds; surrounding frame borders
-do not select a row or activate a cell.
-
-### One-shot tree selection and reveal
-
-Set `#tree.selection_request = {Token, NodeId}` to select a node, expand its
-ancestors and scroll it into its resolved viewport. Change the token to repeat
-the intent; unchanged requests preserve interactive selection, expansion and wheel
-scrolling across rebuilds. This does not change keyboard focus or emit an event.
-
-The server prepares active trees after state merging and before rendering,
-including initial views, modals and resizes. Hidden/inactive-tab requests wait
-until active. Missing node IDs are consumed without changing selection; submit
-a new token when the node becomes available. `undefined` cancels a request and
-resets its marker. Leave `selection_request_applied` to the framework.
-
-On resize, the current selection is kept visible without reopening branches the
-user collapsed. Pure render/test callers should run `nit_engine:prepare_tree/2`
-after merging, with the actual root bounds (`prepare_tree/3` with `resize` for a
-resize). No process-dictionary bridge or keyed remount is required.
-
 ### Sizing and layout notes
 
 - `width` / `height` accept `auto` (fit content), `fill` (consume remaining
@@ -169,11 +126,6 @@ resize). No process-dictionary bridge or keyed remount is required.
 - `#hbox{}` measures wrapped text against the width each child actually
   receives, not the parent width — so `#text{wrap = true}` reports its true
   wrapped line count.
-- `#stat_row{}` clips its single-line styled segments to its declared width and
-  allocated bounds using Unicode terminal-cell widths, preserving label/value
-  and separator styles. It renders nothing outside the available row/columns.
-- Modal background rendering retains trees, lists, stat rows and nested scroll
-  content with dim styling, rather than dropping those elements.
 
 ---
 
