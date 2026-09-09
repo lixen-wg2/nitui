@@ -104,7 +104,8 @@ do_collect_children(#tabs{tabs = TabList}) ->
 do_collect_children(_) -> [].
 
 %% Collect focusable elements (not containers)
-do_collect_child(#button{id = Id, focusable = true}) when Id =/= undefined -> [Id];
+do_collect_child(#button{id = Id, focusable = true, enabled = true, visible = true})
+        when Id =/= undefined -> [Id];
 do_collect_child(#button{}) -> [];
 do_collect_child(#input{id = Id, focusable = true}) when Id =/= undefined -> [Id];
 do_collect_child(#input{}) -> [];

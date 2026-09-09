@@ -33,7 +33,8 @@ render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar} =
 
     %% Render scrollbar if needed
     ScrollbarOutput = if ShowBar andalso TotalHeight > ViewHeight ->
-                             render_scrollbar(Bounds, ClampedOffset, TotalHeight, ViewHeight);
+                             render_scrollbar(Bounds, ClampedOffset, TotalHeight, ViewHeight,
+                                              maps:get(base_style, Opts, #{}));
                          true ->
                              []
                       end,
@@ -131,7 +132,7 @@ render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, W
     TargetY = DestY + VisibleTop - ClipTop,
     viewport_to_ansi(OffscreenScreen, Width, VisibleHeight, RelativeOffset, DestX, TargetY).
 
-%% Internal render hook lets the two-level renderer retain its focus context
+%% Internal render hook lets focus-aware renderers retain their focus context
 %% through both direct and offscreen paths. Plain element rendering is unchanged.
 render_child(Child, Bounds, Opts) ->
     Render = maps:get(render_child, Opts, fun nit_element:render/3),
@@ -176,7 +177,7 @@ char_to_binary(Bin) when is_binary(Bin) ->
 clamp_offset(Offset, TotalHeight, ViewHeight) ->
     min(max(0, Offset), max(0, TotalHeight - ViewHeight)).
 
-render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight) ->
+render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight, BaseStyle) ->
     %% Calculate scrollbar position and size
     BarX = Bounds#bounds.x + Bounds#bounds.width - 1,
     BarY = Bounds#bounds.y,
@@ -193,19 +194,20 @@ render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight) ->
                end,
     
     %% Render scrollbar track and thumb
-    render_scrollbar_lines(BarX, BarY, ViewHeight, ThumbPos, ThumbSize, []).
+    Style = maps:merge(#{fg => gray}, BaseStyle),
+    render_scrollbar_lines(BarX, BarY, ViewHeight, ThumbPos, ThumbSize, Style, []).
 
-render_scrollbar_lines(_X, _Y, 0, _ThumbPos, _ThumbSize, Acc) ->
+render_scrollbar_lines(_X, _Y, 0, _ThumbPos, _ThumbSize, _Style, Acc) ->
     lists:reverse(Acc);
-render_scrollbar_lines(X, Y, Remaining, ThumbPos, ThumbSize, Acc) ->
+render_scrollbar_lines(X, Y, Remaining, ThumbPos, ThumbSize, Style, Acc) ->
     LineIdx = length(Acc),
     Char = if LineIdx >= ThumbPos andalso LineIdx < ThumbPos + ThumbSize ->
-                  <<"█">>;  %% Thumb
+                  <<"█"/utf8>>;  %% Thumb
               true ->
-                  <<"░">>   %% Track
+                  <<"░"/utf8>>   %% Track
            end,
     Line = [nit_ansi:move_to(Y + LineIdx, X),
-            nit_ansi:style_to_ansi(#{fg => gray}),
+            nit_ansi:style_to_ansi(Style),
             Char,
             nit_ansi:reset_style()],
-    render_scrollbar_lines(X, Y, Remaining - 1, ThumbPos, ThumbSize, [Line | Acc]).
+    render_scrollbar_lines(X, Y, Remaining - 1, ThumbPos, ThumbSize, Style, [Line | Acc]).

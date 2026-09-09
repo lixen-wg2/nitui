@@ -93,7 +93,9 @@
     ?ELEMENT_BASE,
     label = <<>> :: binary() | string(),
     on_click = undefined :: undefined | {atom(), atom()} | fun(),  %% {Module, Function} or fun()
-    focused_style = #{bold => true, underline => true} :: map()
+    focused_style = #{bold => true, underline => true} :: map(),
+    enabled = true :: boolean(),          %% Disabled buttons neither focus nor activate
+    disabled_style = #{fg => bright_black, dim => true} :: map()
 }).
 
 %% Input element - text input field
@@ -123,7 +125,9 @@
 -record(table_col, {
     id :: term(),                          %% Column identifier
     header = <<>> :: binary() | string(),  %% Column header text
-    width = auto :: auto | pos_integer(),  %% Column width
+    %% Integers retain legacy proportional sizing. Fixed widths never shrink;
+    %% fill columns share the space remaining after fixed/preferred columns.
+    width = auto :: auto | pos_integer() | {fixed, pos_integer()} | fill,
     align = left :: left | center | right  %% Text alignment
 }).
 
@@ -262,7 +266,11 @@
     on_select = undefined :: undefined | {atom(), atom()} | fun(),
     selected_style = #{bg => white, fg => black} :: map(),
     focused_selected_style = #{bg => white, fg => black} :: map(),
-    full_row_selection = false :: boolean() %% Include prefix and padding in selection
+    full_row_selection = false :: boolean(), %% Include prefix and padding in selection
+    %% One-shot selection/reveal intent; change the token to repeat a request.
+    %% Interactive selection, expansion and scroll survive unchanged requests.
+    selection_request = undefined :: undefined | {term(), term()},
+    selection_request_applied = undefined :: undefined | {term(), term()} %% Framework-owned
 }).
 
 %% Scroll container - scrollable viewport for content

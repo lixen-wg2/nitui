@@ -20,7 +20,8 @@
 render(#button{visible = false}, _Bounds, _Opts) ->
     [];
 render(#button{label = Label, style = Style, x = X, y = Y, width = W,
-               focused_style = FocusedStyle}, Bounds, Opts) ->
+               focused_style = FocusedStyle, enabled = Enabled,
+               disabled_style = DisabledStyle}, Bounds, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Focused = maps:get(focused, Opts, false),
@@ -31,12 +32,18 @@ render(#button{label = Label, style = Style, x = X, y = Y, width = W,
     LabelLen = string:length(unicode:characters_to_list(LabelBin)),
     Width = case W of
         auto -> LabelLen + button_padding_width();
-        fill -> max(LabelLen + button_padding_width(), Bounds#bounds.width - X);
+        fill -> Bounds#bounds.width - X;
         _ -> W
     end,
     
-    StateStyle = button_state_style(Style, Focused, Hovered, FocusedStyle),
-    MergedStyle = maps:merge(StateStyle, BaseStyle),
+    MergedStyle = case Enabled of
+        true ->
+            StateStyle = button_state_style(Style, Focused, Hovered, FocusedStyle),
+            maps:merge(StateStyle, BaseStyle);
+        false ->
+            %% Disabled styling wins even when focus/hover IDs are stale.
+            maps:merge(maps:merge(Style, BaseStyle), DisabledStyle)
+    end,
     
     Padding = max(0, Width - LabelLen),
     LeftPad = Padding div 2,

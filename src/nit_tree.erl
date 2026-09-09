@@ -70,10 +70,16 @@ merge_state(#list{id = Id, selected = OldSel, offset = OldOff},
             #list{id = Id} = New) ->
     New#list{selected = OldSel, offset = OldOff};
 
-%% Trees - preserve selected and expanded states
-merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes},
+%% Trees - preserve native state and the consumed request, not the new intent.
+merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes,
+                  selection_request_applied = OldApplied},
             #tree{id = Id} = New) ->
+    Applied = case New#tree.selection_request of
+        undefined -> undefined;
+        _ -> OldApplied
+    end,
     New#tree{selected = OldSel, offset = OldOff,
+             selection_request_applied = Applied,
              nodes = merge_tree_nodes(OldNodes, New#tree.nodes)};
 
 %% Inputs - preserve value, cursor position, and active selection

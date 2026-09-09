@@ -151,12 +151,13 @@ init({_Name, CallbackModule, InitArg}) ->
     %% Start periodic refresh timer (every 1 second)
     RefreshTimer = erlang:send_after(1000, self(), refresh_tick),
     %% Initial render
+    PreparedTree = nit_engine:prepare_tree(Tree, Bounds),
     nit_tty:clear(),
-    render_tree(Tree, Bounds, FocusedContainer, FocusedChild),
+    render_tree(PreparedTree, Bounds, FocusedContainer, FocusedChild),
     {ok, #nit_state{
         callback = CallbackModule,
         user_state = UserState,
-        tree = Tree,
+        tree = PreparedTree,
         bounds = Bounds,
         focused_container = FocusedContainer,
         focused_child = FocusedChild,
@@ -191,14 +192,13 @@ handle_info({input, Event}, State) ->
     handle_input(Event, State);
 
 %% Handle terminal resize
-handle_info({resize, Cols, Rows}, State = #nit_state{tree = Tree,
-                                                       focused_container = FC,
-                                                       focused_child = FCh}) ->
-    %% Update bounds and re-render
+handle_info({resize, Cols, Rows}, State) ->
+    %% Reconcile current selections against the new active render bounds.
     NewBounds = #bounds{width = Cols, height = Rows},
+    NewState = prepare_render_state(State#nit_state{bounds = NewBounds,
+                                                   prev_screen = undefined}, resize),
     nit_tty:clear(),
-    render_tree(Tree, NewBounds, FC, FCh),
-    {noreply, State#nit_state{bounds = NewBounds}};
+    {noreply, render_diff(NewState)};
 
 %% Handle cursor blink timer
 handle_info(cursor_blink, State = #nit_state{cursor_visible = Visible, cursor_timer = _Timer}) ->
@@ -435,7 +435,7 @@ handle_modal_click(Col, Row, Modal, Bounds, State) ->
 handle_modal_button_click(ButtonId, Modal, State = #nit_state{callback = Cb, user_state = US}) ->
     %% Find the button in the modal and call user's handler
     case nit_focus:find_element(Modal, ButtonId) of
-        #button{id = Id, on_click = Handler} ->
+        #button{id = Id, on_click = Handler, enabled = true, visible = true} ->
             case call_handler(Cb, {click, Id, Handler}, US) of
                 {noreply, NewUS} ->
                     do_update(fun(_) -> NewUS end, State);
@@ -457,31 +457,8 @@ handle_modal_button_click(ButtonId, Modal, State = #nit_state{callback = Cb, use
 handle_activate(State = #nit_state{bounds = _Bounds, callback = Cb, user_state = US}) ->
     {Tree, Container, FocusedChild, _Ids, _Where} = active_focus(State),
     case nit_engine:activation_target(Tree, Container, FocusedChild) of
-        #button{id = Id, on_click = Handler} ->
-            case call_handler(Cb, {click, Id, Handler}, US) of
-                {noreply, NewUS} ->
-                    do_update(fun(_) -> NewUS end, State);
-                {modal, Modal, NewUS} ->
-                    NewState = activate_modal(State#nit_state{user_state = NewUS}, Modal),
-                    FinalState = render_diff(NewState),
-                    {noreply, FinalState};
-                {switch, NewModule, Args} ->
-                    do_switch(NewModule, Args, State);
-                {push, NewModule, Args} ->
-                    do_push(NewModule, Args, State);
-                {push, NewModule, Args, NewUS} ->
-                    do_push(NewModule, Args, State#nit_state{user_state = NewUS});
-                {fullscreen, TargetId, NewUS} ->
-                    enter_fullscreen(TargetId, NewUS, State, undefined);
-                {toggle_fullscreen, TargetId, NewUS} ->
-                    toggle_fullscreen(TargetId, NewUS, State, undefined);
-                {exit_fullscreen, NewUS} ->
-                    exit_fullscreen(NewUS, State, undefined);
-                pop ->
-                    do_pop(State);
-                {stop, Reason, _NewUS} ->
-                    {stop, Reason, State}
-            end;
+        #button{} = Button ->
+            handle_button_activate(Button, State);
         #input{id = Id, value = Value, on_submit = Handler} ->
             case call_handler(Cb, {submit, Id, Value, Handler}, US) of
                 {noreply, NewUS} -> do_update(fun(_) -> NewUS end, State);
@@ -528,10 +505,46 @@ handle_activate(State = #nit_state{bounds = _Bounds, callback = Cb, user_state =
         #tree{} ->
             {noreply, State};
         _ ->
-            %% Check if we're in a tabs widget with a table (focused_child is tab id)
-            handle_activate_in_tabs(Container, Tree, Cb, US, State)
+            case nit_focus:find_element(Tree, FocusedChild) of
+                #button{} when FocusedChild =/= undefined ->
+                    %% A rejected stale button focus must not activate a tab's table either.
+                    {noreply, State};
+                _ ->
+                    %% Check for a tabs widget with a table (focused_child is tab id).
+                    handle_activate_in_tabs(Container, Tree, Cb, US, State)
+            end
     end.
 
+%% Mouse activation is independent of focusability; keyboard callers first
+%% resolve an eligible focus target. All paths still require an enabled button.
+handle_button_activate(#button{id = Id, on_click = Handler, enabled = true, visible = true},
+                       State = #nit_state{callback = Cb, user_state = US}) ->
+    case call_handler(Cb, {click, Id, Handler}, US) of
+        {noreply, NewUS} ->
+            do_update(fun(_) -> NewUS end, State);
+        {modal, Modal, NewUS} ->
+            NewState = activate_modal(State#nit_state{user_state = NewUS}, Modal),
+            FinalState = render_diff(NewState),
+            {noreply, FinalState};
+        {switch, NewModule, Args} ->
+            do_switch(NewModule, Args, State);
+        {push, NewModule, Args} ->
+            do_push(NewModule, Args, State);
+        {push, NewModule, Args, NewUS} ->
+            do_push(NewModule, Args, State#nit_state{user_state = NewUS});
+        {fullscreen, TargetId, NewUS} ->
+            enter_fullscreen(TargetId, NewUS, State, undefined);
+        {toggle_fullscreen, TargetId, NewUS} ->
+            toggle_fullscreen(TargetId, NewUS, State, undefined);
+        {exit_fullscreen, NewUS} ->
+            exit_fullscreen(NewUS, State, undefined);
+        pop ->
+            do_pop(State);
+        {stop, Reason, _NewUS} ->
+            {stop, Reason, State}
+    end;
+handle_button_activate(#button{}, State) ->
+    {noreply, State}.
 
 %% Handle Enter when focused on a tab that contains a table
 handle_activate_in_tabs(Container, Tree, Cb, US, State) ->
@@ -773,7 +786,7 @@ handle_page(Dir, State = #nit_state{focused_container = Container, focused_child
 %%====================================================================
 
 handle_char_input(Char, State = #nit_state{callback = Cb, user_state = US}) ->
-    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    {Tree, _FC, Child, _Ids, Where} = active_focus(State),
     InputId = focused_input_id(State),
     case nit_engine:apply_char_input(Tree, InputId, Char) of
         {ok, NewTree, Id, NewValue} ->
@@ -785,7 +798,18 @@ handle_char_input(Char, State = #nit_state{callback = Cb, user_state = US}) ->
             FinalState = render_diff(NewState),
             {noreply, FinalState};
         false ->
-            forward_event({char, Char}, State)
+            case {Char, nit_focus:find_element(Tree, Child)} of
+                {32, #button{enabled = true, visible = true, focusable = true} = Button}
+                        when Child =/= undefined ->
+                    handle_button_activate(Button, State);
+                {32, #button{}} when Child =/= undefined ->
+                    {noreply, State};
+                _ when Where =:= modal ->
+                    %% Modal buttons must not leak character shortcuts to the main view.
+                    {noreply, State};
+                _ ->
+                    forward_event({char, Char}, State)
+            end
     end.
 
 handle_backspace(State = #nit_state{callback = Cb, user_state = US}) ->
@@ -1050,10 +1074,19 @@ handle_mouse_click(Col, Row, State = #nit_state{tree = Tree, bounds = Bounds,
             FinalState = render_diff(NewState),
             {noreply, FinalState};
         {button, ButtonId} ->
-            %% Find which container owns this button
-            Container = nit_engine:focus_container_for(Tree, ButtonId),
-            NewState = State#nit_state{focused_container = Container, focused_child = ButtonId},
-            handle_activate(NewState);
+            case nit_focus:find_element(Tree, ButtonId) of
+                #button{enabled = true, visible = true, focusable = Focusable} = Button ->
+                    %% Mouse-only buttons activate without stealing keyboard focus.
+                    NewState = case Focusable of
+                        true ->
+                            Container = nit_engine:focus_container_for(Tree, ButtonId),
+                            State#nit_state{focused_container = Container, focused_child = ButtonId};
+                        false -> State
+                    end,
+                    handle_button_activate(Button, NewState);
+                _ ->
+                    {noreply, State}
+            end;
         {input, InputId} ->
             %% Find which container owns this input
             Container = nit_engine:focus_container_for(Tree, InputId),
@@ -1656,9 +1689,21 @@ call_handler_with_debug(Cb, Event, US, State) ->
 render_tree(Tree, Bounds, FocusedContainer, FocusedChild) ->
     nit_tty:write(nit_render:render_two_level(Tree, Bounds, FocusedContainer, FocusedChild)).
 
+%% The state tree is already stretched when fullscreen; the saved base tree
+%% must not consume requests using its inactive layout. A modal likewise owns
+%% preparation while the underlying view is inactive.
+prepare_render_state(State = #nit_state{tree = Tree, bounds = Bounds,
+                                        modal = undefined}, Mode) ->
+    State#nit_state{tree = nit_engine:prepare_tree(Tree, Bounds, Mode)};
+prepare_render_state(State = #nit_state{modal = Modal, bounds = Bounds}, Mode) ->
+    State#nit_state{modal = nit_engine:prepare_tree(Modal, Bounds, Mode)}.
+
 %% @doc Render with differential updates - returns updated state with new screen buffer.
 %% Also handles lifecycle callbacks (on_mount/on_unmount).
-render_diff(State = #nit_state{tree = Tree, bounds = Bounds,
+render_diff(State) ->
+    render_prepared_diff(prepare_render_state(State, normal)).
+
+render_prepared_diff(State = #nit_state{tree = Tree, bounds = Bounds,
                                focused_container = Container, focused_child = Child,
                                modal = Modal, modal_focus = MF,
                                prev_screen = PrevScreen,
@@ -1896,6 +1941,7 @@ update_cursor_timer(State = #nit_state{cursor_timer = OldTimer}) ->
 handle_shortcut_click(Key, State) ->
     case nit_shortcuts:parse(Key) of
         enter -> handle_activate(State);
+        {char, 32} -> handle_char_input(32, State);
         tab -> handle_focus_next(State);
         btab -> handle_focus_prev(State);
         escape -> handle_input(escape, State);
@@ -1915,9 +1961,10 @@ maybe_cancel_timer(Timer) ->
 
 -ifdef(TEST).
 rebuild_for_test(Callback, NewUS, OldTree, MergeFromTree) ->
-    State = #nit_state{callback = Callback, tree = OldTree},
+    State = #nit_state{callback = Callback, tree = OldTree, bounds = #bounds{}},
     Rebuilt = rebuild_view_state(NewUS, State, MergeFromTree),
-    Rebuilt#nit_state.tree.
+    Prepared = prepare_render_state(Rebuilt, normal),
+    Prepared#nit_state.tree.
 
 input_for_test(Callback, US, Tree, Modal, Event) ->
     input_sequence_for_test(Callback, US, Tree, Modal, [Event]).

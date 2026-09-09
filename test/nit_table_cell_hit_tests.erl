@@ -117,9 +117,9 @@ cell_hits_are_clipped_to_allocated_bounds_test() ->
     Table = (table())#table{show_header = false},
     Bounds = #bounds{width = 3, height = 1},
     ?assertEqual({table_cell, rows, 1, name}, nit_hit:find_at(Table, 3, 1, Bounds)),
-    %% Preserve legacy fallback, but never expose an off-viewport cell target.
-    ?assertEqual({table_row, rows, 1}, nit_hit:find_at(Table, 4, 1, Bounds)),
-    ?assertEqual({table_row, rows, 2}, nit_hit:find_at(Table, 1, 2, Bounds)).
+    %% Neither cells nor fallback row hits may escape the allocated viewport.
+    ?assertEqual(not_found, nit_hit:find_at(Table, 4, 1, Bounds)),
+    ?assertEqual(not_found, nit_hit:find_at(Table, 1, 2, Bounds)).
 
 scroll_container_clips_and_translates_cell_hits_test() ->
     Table = (table())#table{height = 10, show_header = false,

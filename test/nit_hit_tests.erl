@@ -103,7 +103,8 @@ table_hit_border_test() ->
                   rows = [[<<"Row 1">>]]},
     Bounds = default_bounds(),
     %% Clicking on border area returns table (not table_row)
-    ?assertEqual({table, my_table}, nit_hit:find_at(Tree, 0, 0, Bounds)).
+    ?assertEqual({table, my_table}, nit_hit:find_at(Tree, 1, 1, Bounds)),
+    ?assertEqual(not_found, nit_hit:find_at(Tree, 0, 0, Bounds)).
 
 table_miss_test() ->
     Tree = #table{id = my_table, x = 5, y = 5, width = 20, height = 5,

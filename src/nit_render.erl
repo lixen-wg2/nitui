@@ -326,6 +326,9 @@ render_tab_header(Label, X, Y, Style, RightEdge) ->
 %% Internal - Styled Rendering (with base style modifier for dimming)
 %%====================================================================
 
+render_focused_styled(Element, _Bounds, _FocusedId, _BaseStyle)
+  when element(#box.visible, Element) =:= false ->
+    [];
 render_focused_styled(#panel{children = Children}, Bounds, FocusedId, BaseStyle) ->
     render_children_styled(Children, Bounds, FocusedId, BaseStyle);
 render_focused_styled(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds, FocusedId, BaseStyle) ->
@@ -388,34 +391,22 @@ render_focused_styled(#tabs{} = Tabs, Bounds, FocusedId, BaseStyle) ->
     render_tabs_styled(Tabs, Bounds, FocusedId, BaseStyle);
 render_focused_styled(#table{} = Table, Bounds, _FocusedId, BaseStyle) ->
     render_table_styled(Table, Bounds, BaseStyle);
-render_focused_styled(_Element, _Bounds, _FocusedId, _BaseStyle) ->
-    [].
+render_focused_styled(#scroll{} = Scroll, Bounds, FocusedId, BaseStyle) ->
+    %% Keep the focused ID through direct and clipped child rendering.
+    RenderChild = fun(Element, ChildBounds, _ChildOpts) ->
+        render_focused_styled(Element, ChildBounds, FocusedId, BaseStyle)
+    end,
+    render_with_opts(Scroll, Bounds, #{base_style => BaseStyle, render_child => RenderChild});
+render_focused_styled(Element, Bounds, FocusedId, BaseStyle) ->
+    Focused = is_tuple(Element) andalso tuple_size(Element) >= #box.on_unmount andalso
+        focus_matches(element(#box.id, Element), FocusedId),
+    render_with_opts(Element, Bounds, #{base_style => BaseStyle, focused => Focused}).
 
 render_children_styled(Children, Bounds, FocusedId, BaseStyle) ->
     [render_focused_styled(Child, Bounds, FocusedId, BaseStyle) || Child <- Children].
 
-render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width = W,
-                             focused_style = FocusedStyle}, Bounds, Focused, BaseStyle) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    LabelBin = iolist_to_binary([Label]),
-    LabelLen = string:length(unicode:characters_to_list(LabelBin)),
-    Width = case W of
-        auto -> LabelLen + button_padding_width();
-        fill -> Bounds#bounds.width - X;
-        _ -> W
-    end,
-    FocusStyle = button_state_style(Style, Focused, false, FocusedStyle),
-    MergedStyle = maps:merge(FocusStyle, BaseStyle),
-    Padding = max(0, Width - LabelLen),
-    LeftPad = Padding div 2,
-    RightPad = Padding - LeftPad,
-    [
-        nit_ansi:move_to(ActualY, ActualX),
-        nit_ansi:style_to_ansi(MergedStyle),
-        lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
-        nit_ansi:reset_style()
-    ].
+render_button_styled(Button, Bounds, Focused, BaseStyle) ->
+    nit_el_button:render(Button, Bounds, #{focused => Focused, base_style => BaseStyle}).
 
 render_input_styled(Input, Bounds, Focused, BaseStyle) ->
     nit_el_input:render(Input, Bounds, #{focused => Focused, base_style => BaseStyle}).
@@ -477,27 +468,8 @@ render_table_styled(#table{} = Table, Bounds, BaseStyle) ->
 %% Internal - Button Rendering
 %%====================================================================
 
-render_button(#button{label = Label, style = Style, x = X, y = Y, width = W,
-                      focused_style = FocusedStyle}, Bounds, Focused, Hovered) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    LabelBin = iolist_to_binary([Label]),
-    LabelLen = string:length(unicode:characters_to_list(LabelBin)),
-    Width = case W of
-        auto -> LabelLen + button_padding_width();
-        fill -> Bounds#bounds.width - X;
-        _ -> W
-    end,
-    FocusStyle = button_state_style(Style, Focused, Hovered, FocusedStyle),
-    Padding = max(0, Width - LabelLen),
-    LeftPad = Padding div 2,
-    RightPad = Padding - LeftPad,
-    [
-        nit_ansi:move_to(ActualY, ActualX),
-        nit_ansi:style_to_ansi(FocusStyle),
-        lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
-        nit_ansi:reset_style()
-    ].
+render_button(Button, Bounds, Focused, Hovered) ->
+    nit_el_button:render(Button, Bounds, #{focused => Focused, hovered => Hovered}).
 
 %%====================================================================
 %% Internal - Input Rendering
@@ -551,27 +523,3 @@ render_modal(#modal{title = Title, children = Children, border = Border,
             ChildOutput = render_children_two_level(Children, ChildBounds, undefined, FocusedId, Opts),
             [ModalBox, ChildOutput]
     end.
-
-%%====================================================================
-%% Internal - Tabs Rendering
-%%====================================================================
-
-%%====================================================================
-%% Internal - Box Rendering
-%%====================================================================
-
-%% Render just the border of a box (used by box and tabs)
-
-
-button_padding_width() ->
-    4.
-
-button_state_style(Style, true, _Hovered, FocusedStyle) ->
-    maps:merge(Style, FocusedStyle);
-button_state_style(Style, false, true, _FocusedStyle) ->
-    case maps:is_key(bg, Style) of
-        true -> maps:merge(Style, #{bold => true, underline => true});
-        false -> maps:merge(Style, #{bg => bright_black, bold => true})
-    end;
-button_state_style(Style, false, false, _FocusedStyle) ->
-    Style.

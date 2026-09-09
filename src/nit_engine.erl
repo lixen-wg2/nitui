@@ -51,6 +51,7 @@
 -export([split_at/2]).
 -export([call_handler/3]).
 -export([call_view/3]).
+-export([prepare_tree/2, prepare_tree/3]).
 -export([init_focus_state/2]).
 -export([cycle_focus/4]).
 
@@ -363,6 +364,11 @@ activation_target(Tree, Container, FocusedChild) ->
         _ -> nit_focus:find_element(Tree, FocusedChild)
     end,
     case Child of
+        #button{enabled = true, visible = true, focusable = true} = Button ->
+            Button;
+        #button{} ->
+            %% A stale child ID must not activate a disabled/hidden or mouse-only button.
+            undefined;
         undefined ->
             case nit_focus:find_element(Tree, Container) of
                 #table{} = Table -> Table;
@@ -805,6 +811,76 @@ init_focus_state(CallbackModule, InitArg) ->
         [] -> undefined
     end,
     {UserState, Tree, ContainerIds, FocusedContainer, FocusedChild}.
+
+%%====================================================================
+%% Pure render preparation (after merge and active/fullscreen root selection)
+%%====================================================================
+
+-spec prepare_tree(term(), #bounds{}) -> term().
+prepare_tree(Tree, Bounds) ->
+    prepare_tree(Tree, Bounds, normal).
+
+-spec prepare_tree(term(), #bounds{}, normal | resize) -> term().
+prepare_tree(Tree, Bounds, Mode) when Mode =:= normal; Mode =:= resize ->
+    Revealed = map_tree_widgets(Tree, true, fun
+        (Widget, true) -> nit_tree_nav:reveal_selection_request(Widget);
+        (#tree{selection_request = undefined} = Widget, false) ->
+            Widget#tree{selection_request_applied = undefined};
+        (Widget, false) -> Widget
+    end, {Tree, Bounds}),
+    %% Resolve every viewport against the same, fully expanded layout.
+    map_tree_widgets(Revealed, true, fun
+        (#tree{selection_request = Request, selection_request_applied = Request} = Widget,
+         true) when Mode =:= normal ->
+            Widget;
+        (#tree{id = Id} = Widget, true) ->
+            case nit_bounds:find_element_bounds(Revealed, Id, Bounds) of
+                {ok, #bounds{height = Height}} ->
+                    nit_tree_nav:finish_selection_request(Widget, Height, Mode);
+                not_found -> Widget
+            end;
+        (Widget, false) -> Widget
+    end, {Revealed, Bounds}).
+
+%% Visit inactive descendants too, but only to reset cancelled requests.
+%% All UI records share ELEMENT_BASE's visible field.
+map_tree_widgets(Element, Active, Fun, Layout) ->
+    Visible = case Element of
+        E when element(#box.visible, E) =:= false -> false;
+        _ -> Active
+    end,
+    map_tree_widget_children(Element, Visible, Fun, Layout).
+
+map_tree_widget_children(#tree{} = Tree, Active, Fun, _Layout) -> Fun(Tree, Active);
+map_tree_widget_children(#box{children = C} = E, A, F, L) ->
+    E#box{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#panel{children = C} = E, A, F, L) ->
+    E#panel{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#vbox{children = C} = E, A, F, L) ->
+    E#vbox{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#hbox{children = C} = E, A, F, L) ->
+    E#hbox{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#scroll{children = C} = E, A, F, L) ->
+    E#scroll{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#modal{children = C} = E, A, F, L) ->
+    E#modal{children = [map_tree_widgets(X, A, F, L) || X <- C]};
+map_tree_widget_children(#tabs{tabs = Tabs, active_tab = ActiveTab} = E, A, F, L) ->
+    ActiveId = resolve_active_tab(ActiveTab, [Id || #tab{id = Id} <- Tabs]),
+    ContentVisible = A andalso tab_content_visible(E, L),
+    E#tabs{tabs = [Tab#tab{content = [
+        map_tree_widgets(X, ContentVisible andalso Id =:= ActiveId, F, L) || X <- C
+    ]} || #tab{id = Id, content = C} = Tab <- Tabs]};
+map_tree_widget_children(Element, _Active, _Fun, _Layout) -> Element.
+
+tab_content_visible(#tabs{height = Height}, _Layout) when is_integer(Height), Height < 3 ->
+    false;
+tab_content_visible(#tabs{width = Width}, _Layout) when is_integer(Width), Width =< 2 ->
+    false;
+tab_content_visible(#tabs{id = Id}, {Tree, Bounds}) ->
+    case nit_bounds:find_element_bounds(Tree, Id, Bounds) of
+        {ok, #bounds{width = Width, height = Height}} -> Width > 2 andalso Height >= 3;
+        not_found -> false
+    end.
 
 %%====================================================================
 %% Internal

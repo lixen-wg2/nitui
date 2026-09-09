@@ -143,9 +143,9 @@ scroll_clips_nested_children_to_viewport_test() ->
         ]
     },
     Screen = nit_screen:from_ansi(nit_render:render(Tree, Bounds), 12, 5),
-    ?assertEqual(<<"Line 1      ">>, row_text(Screen, 12, 0)),
-    ?assertEqual(<<"Line 2      ">>, row_text(Screen, 12, 1)),
-    ?assertEqual(<<"Line 3      ">>, row_text(Screen, 12, 2)),
+    ?assertEqual(<<"Line 1     █"/utf8>>, row_text(Screen, 12, 0)),
+    ?assertEqual(<<"Line 2     ░"/utf8>>, row_text(Screen, 12, 1)),
+    ?assertEqual(<<"Line 3     ░"/utf8>>, row_text(Screen, 12, 2)),
     ?assertEqual(<<"            ">>, row_text(Screen, 12, 3)).
 
 scroll_offset_applies_with_nested_vbox_children_test() ->
@@ -165,9 +165,9 @@ scroll_offset_applies_with_nested_vbox_children_test() ->
         ]
     },
     Screen = nit_screen:from_ansi(nit_render:render(Tree, Bounds), 12, 4),
-    ?assertEqual(<<"Line 3      ">>, row_text(Screen, 12, 0)),
-    ?assertEqual(<<"Line 4      ">>, row_text(Screen, 12, 1)),
-    ?assertEqual(<<"Line 5      ">>, row_text(Screen, 12, 2)).
+    ?assertEqual(<<"Line 3     ░"/utf8>>, row_text(Screen, 12, 0)),
+    ?assertEqual(<<"Line 4     ░"/utf8>>, row_text(Screen, 12, 1)),
+    ?assertEqual(<<"Line 5     █"/utf8>>, row_text(Screen, 12, 2)).
 
 scroll_hides_invisible_vbox_when_clipped_test() ->
     %% Regression: render_clipped_child used to bypass the visible=false
@@ -191,9 +191,9 @@ scroll_hides_invisible_vbox_when_clipped_test() ->
         ]
     },
     Screen = nit_screen:from_ansi(nit_render:render(Tree, Bounds), 12, 3),
-    ?assertEqual(<<"            ">>, row_text(Screen, 12, 0)),
-    ?assertEqual(<<"            ">>, row_text(Screen, 12, 1)),
-    ?assertEqual(<<"            ">>, row_text(Screen, 12, 2)).
+    ?assertEqual(<<"           ░"/utf8>>, row_text(Screen, 12, 0)),
+    ?assertEqual(<<"           █"/utf8>>, row_text(Screen, 12, 1)),
+    ?assertEqual(<<"           ░"/utf8>>, row_text(Screen, 12, 2)).
 
 scroll_offset_counts_wrapped_text_lines_test() ->
     Bounds = #bounds{x = 0, y = 0, width = 4, height = 2},

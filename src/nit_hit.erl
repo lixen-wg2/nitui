@@ -59,6 +59,10 @@ find_at_impl(#tabs{id = Id, tabs = TabList, active_tab = ActiveTab0, x = X, y = 
         true -> not_found
     end;
 
+find_at_impl(#button{enabled = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#button{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
 find_at_impl(#button{id = Id, x = X, y = Y, width = W, label = Label}, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
@@ -116,6 +120,11 @@ find_at_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Col, R
     ChildWidths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
     find_in_children_hbox(lists:zip(Children, ChildWidths), Col, Row, StartBounds, Spacing);
 
+find_at_impl(#table{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#table{}, Col, Row, #bounds{x = X, y = Y, width = W, height = H})
+  when Col =< X; Col > X + W; Row =< Y; Row > Y + H ->
+    not_found;
 find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Border,
                     show_header = ShowHeader,
                     columns = Columns, rows = Rows, total_rows = TotalRows} = Table, Col, Row, Bounds) ->
@@ -150,14 +159,14 @@ find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Borde
                 {ok, ColumnId} -> {table_header, Id, ColumnId};
                 not_found -> {table, Id}
             end;
-        Col >= ActualX + BorderOffset, Col =< ActualX + Width - BorderOffset,
+        Col > ActualX + BorderOffset, Col =< ActualX + Width - BorderOffset,
         Row > ActualY + BorderOffset + HeaderOffset, Row =< ActualY + Height - BorderOffset ->
             %% Calculate which row was clicked
             ClickedRowIdx = Row - ActualY - BorderOffset - HeaderOffset + ScrollOffset,
             if
                 ClickedRowIdx >= 1, ClickedRowIdx =< ActualTotalRows ->
-                    %% Only visible, rendered cells opt in. Keep the legacy row
-                    %% hit (including padding/border fallbacks) everywhere else.
+                    %% Only visible, rendered cells opt in; separators and
+                    %% trailing padding retain normal row selection.
                     case Table#table.clickable_columns =/= [] andalso Table#table.visible
                          andalso ClickedRowIdx - ScrollOffset =< length(VisibleRows)
                          andalso Col > ActualX + BorderOffset
@@ -173,8 +182,8 @@ find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Borde
                 true ->
                     {table, Id}
             end;
-        Col >= ActualX, Col =< ActualX + Width,
-        Row >= ActualY, Row =< ActualY + Height ->
+        Col > ActualX, Col =< ActualX + Width,
+        Row > ActualY, Row =< ActualY + Height ->
             {table, Id};
         true ->
             not_found

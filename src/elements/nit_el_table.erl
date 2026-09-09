@@ -197,13 +197,64 @@ column_widths(#table{columns = Columns} = Table, Rows, AvailableWidth) ->
         end,
         ContentWidths0,
         Rows),
-    NumCols = length(ContentWidths),
-    TotalWidth = lists:sum(ContentWidths) + max(0, NumCols - 1) * column_separator_width(Table),
+    SeparatorWidth = max(0, length(Columns) - 1) * column_separator_width(Table),
+    case lists:any(fun({{fixed, _}, _}) -> true;
+                      ({fill, _}) -> true;
+                      (_) -> false
+                   end, WidthSpecs) of
+        true ->
+            constrained_column_widths(WidthSpecs, ContentWidths, AvailableWidth - SeparatorWidth);
+        false ->
+            legacy_column_widths(ContentWidths, SeparatorWidth, AvailableWidth)
+    end.
+
+%% Keep the historical scaling (including its minimum width) for legacy specs.
+legacy_column_widths(ContentWidths, SeparatorWidth, AvailableWidth) ->
+    TotalWidth = lists:sum(ContentWidths) + SeparatorWidth,
     if
         TotalWidth =< AvailableWidth -> ContentWidths;
         true ->
             Scale = AvailableWidth / max(1, TotalWidth),
             [max(3, round(W * Scale)) || W <- ContentWidths]
+    end.
+
+constrained_column_widths(WidthSpecs, ContentWidths, ContentBudget) ->
+    FixedWidth = lists:sum([W || {{fixed, W}, _} <- WidthSpecs]),
+    Budget = max(0, ContentBudget - FixedWidth),
+    Preferred = [W || {{Spec, _}, W} <- lists:zip(WidthSpecs, ContentWidths),
+                      Spec =:= auto orelse is_integer(Spec)],
+    PreferredTotal = lists:sum(Preferred),
+    PreferredWidths = share_widths(Preferred, min(Budget, PreferredTotal)),
+    FillCount = length([ok || {fill, _} <- WidthSpecs]),
+    FillWidths = share_widths(lists:duplicate(FillCount, 1), max(0, Budget - PreferredTotal)),
+    %% Fixed widths survive even an impossible budget; pad_line/2 clips output.
+    constrained_widths(WidthSpecs, PreferredWidths, FillWidths).
+
+constrained_widths([], [], []) ->
+    [];
+constrained_widths([{{fixed, W}, _} | Rest], Preferred, Fills) ->
+    [W | constrained_widths(Rest, Preferred, Fills)];
+constrained_widths([{fill, _} | Rest], Preferred, [W | Fills]) ->
+    [W | constrained_widths(Rest, Preferred, Fills)];
+constrained_widths([_ | Rest], [W | Preferred], Fills) ->
+    [W | constrained_widths(Rest, Preferred, Fills)].
+
+%% Integer apportionment cannot overrun the budget. Give rounding remainders
+%% to nonzero weights from left to right, including equal-weight fill columns.
+share_widths(Weights, Budget) ->
+    case lists:sum(Weights) of
+        0 -> Weights;
+        Total ->
+            Scaled = [W * Budget div Total || W <- Weights],
+            {Widths, _} = lists:mapfoldl(
+                fun({W, ScaledW}, Extra) when W > 0, Extra > 0 ->
+                        {ScaledW + 1, Extra - 1};
+                   ({_, ScaledW}, Extra) ->
+                        {ScaledW, Extra}
+                end,
+                Budget - lists:sum(Scaled),
+                lists:zip(Weights, Scaled)),
+            Widths
     end.
 
 width_specs(Columns, Headers) ->
@@ -220,6 +271,8 @@ width_specs([Col | RestCols], [], Acc) ->
 initial_content_widths(WidthSpecs) ->
     [case Width of
          auto -> HeaderLen;
+         {fixed, W} -> W;
+         fill -> 0;
          W -> W
      end || {Width, HeaderLen} <- WidthSpecs].
 
@@ -481,6 +534,8 @@ render_table_cells([], [Width | RestWidths], [], Acc) ->
     Cell = format_cell(to_string(<<>>), Width, left),
     render_table_cells([], RestWidths, [], [Cell | Acc]).
 
+format_cell(_Text, Width, _Align) when Width =< 0 ->
+    [];
 format_cell(Text, Width, Align) ->
     Len = string:length(Text),
     if
