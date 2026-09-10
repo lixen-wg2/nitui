@@ -45,13 +45,22 @@ auto_widths_include_sort_indicator_and_visible_data_test() ->
                             columns = [#table_col{id = name, header = <<"N">>},
                                        #table_col{id = count, header = <<"C">>}],
                             rows = [[<<"longname">>, 1]], clickable_columns = [count]},
-    ?assertEqual([8, 1], nit_el_table:column_widths(Table, Table#table.rows, 20)),
+    ?assertEqual([8, 3], nit_el_table:column_widths(Table, Table#table.rows, 20)),
     ?assertEqual({table_row, rows, 1}, hit(Table, 9, 2)),
     ?assertEqual({table_cell, rows, 1, count}, hit(Table, 10, 2)),
     ?assertEqual({table_header, rows, count}, hit(Table, 10, 1)),
+    ?assertEqual({table_cell, rows, 1, count}, hit(Table, 12, 2)),
+    ?assertEqual({table_row, rows, 1}, hit(Table, 13, 2)),
     Short = Table#table{rows = [[<<"x">>, 1]]},
-    ?assertEqual([3, 1], nit_el_table:column_widths(Short, Short#table.rows, 20)),
-    ?assertEqual({table_cell, rows, 1, count}, hit(Short, 5, 2)).
+    ?assertEqual([3, 3], nit_el_table:column_widths(Short, Short#table.rows, 20)),
+    ?assertEqual({table_cell, rows, 1, count}, hit(Short, 5, 2)),
+    lists:foreach(fun(Id) ->
+        Sorted = Short#table{sort_by = Id},
+        ?assertEqual([3, 3], nit_el_table:column_widths(Sorted, Sorted#table.rows, 20)),
+        ?assertEqual({table_header, rows, count}, hit(Sorted, 7, 1)),
+        ?assertEqual({table_cell, rows, 1, count}, hit(Sorted, 7, 2)),
+        ?assertEqual({table_row, rows, 1}, hit(Sorted, 8, 2))
+    end, [undefined, name, count]).
 
 auto_fill_and_fixed_table_widths_use_local_offsets_test_() ->
     [?_test(begin

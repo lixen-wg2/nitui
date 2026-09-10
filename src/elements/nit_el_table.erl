@@ -369,6 +369,10 @@ header_values(#table{columns = Columns, sortable = Sortable,
             case Sortable andalso ColumnId =:= SortBy of
                 true ->
                     [Header, direction_suffix(SortDir)];
+                false when Sortable ->
+                    %% Reserve the suffix even when inactive so alignment and
+                    %% auto column widths do not change with the sorted column.
+                    [Header, "  "];
                 false ->
                     Header
             end
