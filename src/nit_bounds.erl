@@ -11,7 +11,14 @@
 
 -spec find_element_bounds(tuple(), term(), #bounds{}) -> {ok, #bounds{}} | not_found.
 find_element_bounds(Element, Id, Bounds) ->
-    do_find_bounds(Element, Id, Bounds).
+    case nit_focus:find_element(Element, Id) of
+        #text_view{} = View ->
+            case lists:member(View, nit_focus:visible_text_views(Element)) of
+                true -> do_find_bounds(Element, Id, Bounds);
+                false -> not_found
+            end;
+        _ -> do_find_bounds(Element, Id, Bounds)
+    end.
 
 %% Bounds passed to each child renderer, before the child's own local offsets.
 %% Keep this structural: anonymous records must not need an ID lookup for layout.
@@ -103,6 +110,10 @@ do_find_bounds(#scroll{id = ElementId} = Element, Id, Bounds) ->
     find_container_bounds(Element, ElementId, Id, Bounds, resolve_container_bounds(Element, Bounds));
 do_find_bounds(#modal{id = ElementId} = Element, Id, Bounds) ->
     find_container_bounds(Element, ElementId, Id, Bounds, resolve_modal_bounds(Element, Bounds));
+do_find_bounds(#text_view{visible = false}, _Id, _Bounds) ->
+    not_found;
+do_find_bounds(#text_view{id = Id} = View, Id, Bounds) ->
+    {ok, nit_el_text_view:bounds(View, Bounds)};
 do_find_bounds(#table{id = ElementId} = Table, Id, Bounds) ->
     case ElementId =:= Id of
         true -> {ok, resolve_table_bounds(Table, Bounds)};

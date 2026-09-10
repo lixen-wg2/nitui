@@ -11,6 +11,7 @@
 
 -export([render/2, render_dimmed/3]).
 -export([render_two_level/4, render_two_level/5]).
+-export([render_text_view/5]).
 
 %%====================================================================
 %% API
@@ -39,12 +40,62 @@ render_dimmed(Element, Bounds, FocusedId) ->
 %% Container gets a highlighted border, child gets element focus.
 -spec render_two_level(tuple(), #bounds{}, term(), term()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild) ->
-    render_two_level_impl(Element, Bounds, FocusedContainer, FocusedChild, #{}).
+    render_two_level(Element, Bounds, FocusedContainer, FocusedChild, #{}).
 
 %% @doc Render with two-level focus and additional options (e.g., cursor_visible).
 -spec render_two_level(tuple(), #bounds{}, term(), term(), map()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild, Opts) ->
-    render_two_level_impl(Element, Bounds, FocusedContainer, FocusedChild, Opts).
+    Child = case nit_focus:text_view_target(Element, FocusedContainer, FocusedChild) of
+        #text_view{id = Id} -> Id;
+        _ -> FocusedChild
+    end,
+    render_two_level_impl(Element, Bounds, FocusedContainer, Child, Opts).
+
+%% Redraw only an existing viewer's allocation. Ancestors provide layout and
+%% scroll clipping, but unrelated virtual tables must not fetch new rows.
+render_text_view(Tree, Bounds, Container, Child, Id) ->
+    Focused = case nit_focus:text_view_target(Tree, Container, Child) of
+        #text_view{id = Id} -> true;
+        _ -> false
+    end,
+    render_text_view_only(Tree, Bounds, Bounds, Id, #{focused => Focused}).
+
+render_text_view_only(Element, Bounds, Clip, Id, Opts) ->
+    case lists:any(fun(#text_view{id = VId}) -> VId =:= Id end,
+                   nit_focus:visible_text_views(Element)) of
+        false -> [];
+        true -> render_text_view_branch(Element, Bounds, Clip, Id, Opts)
+    end.
+
+render_text_view_branch(#text_view{} = View, Bounds, Clip, _Id, Opts) ->
+    Resolved = nit_el_text_view:bounds(View, Bounds),
+    case intersect_bounds(Resolved, Clip) of
+        #bounds{width = W, height = H} when W =< 0; H =< 0 -> [];
+        Resolved -> nit_el_text_view:render(View, Bounds, Opts);
+        Visible -> render_clipped_text_view(View, Resolved, Visible, Opts)
+    end;
+render_text_view_branch(#scroll{} = Scroll, Bounds, Clip, Id, Opts) ->
+    {Width, _Height} = nit_el_scroll:content_size(Scroll, Bounds),
+    ChildClip = intersect_bounds(Clip, Bounds#bounds{width = Width}),
+    [render_text_view_only(E, B, ChildClip, Id, Opts)
+     || {E, B} <- nit_bounds:child_layout(Scroll, Bounds)];
+render_text_view_branch(Element, Bounds, Clip, Id, Opts) ->
+    [render_text_view_only(E, B, Clip, Id, Opts)
+     || {E, B} <- nit_bounds:child_layout(Element, Bounds)].
+
+%% Match the scroll renderer's cell-based clipping, but only paint this
+%% viewer's intersection, never blank sibling allocations in the viewport.
+render_clipped_text_view(View, #bounds{x = X, y = Y, width = W, height = H},
+                         #bounds{x = CX, y = CY, width = CW, height = CH}, Opts) ->
+    LocalView = View#text_view{x = 0, y = 0, width = W, height = H},
+    Screen = nit_screen:from_ansi(nit_el_text_view:render(LocalView,
+                                  #bounds{width = W, height = H}, Opts), W, H),
+    [[begin
+        {Char, Style} = nit_screen:get_cell(Screen, Col - X, Row - Y),
+        [nit_ansi:move_to(Row, Col), nit_ansi:reset_style(),
+         nit_ansi:style_to_ansi(Style), unicode:characters_to_binary([Char])]
+      end || Col <- lists:seq(CX, CX + CW - 1)] || Row <- lists:seq(CY, CY + CH - 1)]
+        ++ [nit_ansi:reset_style()].
 
 %%====================================================================
 %% Internal - Two-Level Focus Rendering
@@ -80,12 +131,9 @@ render_two_level_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ElemOutput], CurrentX + ElemWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
-render_two_level_impl(#box{border = none, children = Children,
-                           x = X, y = Y}, Bounds, Container, Child, Opts) ->
-    ChildBounds = Bounds#bounds{
-        x = Bounds#bounds.x + X,
-        y = Bounds#bounds.y + Y
-    },
+render_two_level_impl(#box{border = none, children = Children} = Box,
+                     Bounds, Container, Child, Opts) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
     render_children_two_level(Children, ChildBounds, Container, Child, Opts);
 render_two_level_impl(#box{id = Id, children = Children, border = Border, title = Title,
                            style = Style, x = X, y = Y, width = W, height = H,
@@ -133,6 +181,9 @@ render_two_level_impl(#table{id = Id} = Table, Bounds, Container, Child, Opts) -
     %% Use nit_el_table:render which supports row_provider for virtual scrolling
     Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
     nit_el_table:render(Table, Bounds, Opts#{focused => Focused});
+render_two_level_impl(#text_view{id = Id} = View, Bounds, Container, Child, Opts) ->
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    nit_el_text_view:render(View, Bounds, Opts#{focused => Focused});
 render_two_level_impl(#tabs{} = Tabs, Bounds, Container, Child, Opts) ->
     render_tabs_two_level(Tabs, Bounds, Container, Child, Opts);
 render_two_level_impl(#tree{id = Id} = Tree, Bounds, Container, Child, Opts) ->
@@ -175,6 +226,7 @@ visible_focus(Element, Bounds, Clip, Container, Child)
 visible_focus(_, _, _, _, _) -> false.
 
 focus_region(#scroll{}, Bounds) -> Bounds;
+focus_region(#text_view{} = View, Bounds) -> nit_el_text_view:bounds(View, Bounds);
 focus_region(Element, Bounds) ->
     X = element(#box.x, Element),
     Y = element(#box.y, Element),
@@ -182,8 +234,8 @@ focus_region(Element, Bounds) ->
         width = nit_ansi:resolve_size(element(#box.width, Element), Bounds#bounds.width - X),
         height = nit_ansi:resolve_size(element(#box.height, Element), Bounds#bounds.height - Y)}.
 
-visible_focus_children(#box{border = none, x = X, y = Y} = Box, Bounds, Clip, Container, Child) ->
-    ChildBounds = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+visible_focus_children(#box{border = none} = Box, Bounds, Clip, Container, Child) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
     visible_focus_children_at(Box, ChildBounds, Clip, Container, Child);
 visible_focus_children(#box{} = Box, Bounds, Clip, Container, Child) ->
     Region = focus_region(Box, Bounds),
@@ -352,12 +404,9 @@ render_focused_styled(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ChildOutput], CurrentX + ChildWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
-render_focused_styled(#box{border = none, children = Children,
-                           x = X, y = Y}, Bounds, FocusedId, BaseStyle) ->
-    ChildBounds = Bounds#bounds{
-        x = Bounds#bounds.x + X,
-        y = Bounds#bounds.y + Y
-    },
+render_focused_styled(#box{border = none, children = Children} = Box,
+                     Bounds, FocusedId, BaseStyle) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
     render_children_styled(Children, ChildBounds, FocusedId, BaseStyle);
 render_focused_styled(#box{border = Border, title = Title, children = Children,
                     style = Style, x = X, y = Y, width = W, height = H}, Bounds, FocusedId, BaseStyle) ->
@@ -404,6 +453,16 @@ render_focused_styled(Element, Bounds, FocusedId, BaseStyle) ->
 
 render_children_styled(Children, Bounds, FocusedId, BaseStyle) ->
     [render_focused_styled(Child, Bounds, FocusedId, BaseStyle) || Child <- Children].
+
+borderless_child_bounds(#box{x = X, y = Y} = Box, Bounds) ->
+    case nit_focus:visible_text_views(Box) of
+        [] -> Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y};
+        _ ->
+            %% Viewer layout must agree with hit testing and resolved input
+            %% bounds. Leave legacy borderless layouts without viewers alone.
+            [{_, ChildBounds} | _] = nit_bounds:child_layout(Box, Bounds),
+            ChildBounds
+    end.
 
 render_button_styled(Button, Bounds, Focused, BaseStyle) ->
     nit_el_button:render(Button, Bounds, #{focused => Focused, base_style => BaseStyle}).

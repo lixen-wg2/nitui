@@ -62,6 +62,7 @@
 
 %% Element navigation (unified per-element dispatch)
 -export([navigate_element/6, page_navigate_element/6]).
+-export([text_view_key/4]).
 -export([page_navigate_tab_content/8]).
 
 %%====================================================================
@@ -276,6 +277,8 @@ scroll_target_element(Tree, Id) ->
             {tree, Id};
         #scroll{} ->
             {scroll, Id};
+        #text_view{visible = true} ->
+            {text_view, Id};
         _ ->
             undefined
     end.
@@ -411,6 +414,11 @@ split_at(Bin, Pos) ->
     {ok, term(), term()} | unhandled.
 navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     case nit_focus:find_element(Tree, ElementId) of
+        #text_view{} ->
+            case text_view_key(Tree, ElementId, {key, Dir}, Bounds) of
+                {ok, NewTree} -> {ok, NewTree, US};
+                false -> unhandled
+            end;
         #table{} = Table when Dir =:= up; Dir =:= down ->
             NewTable = navigate_table(Dir, Table, Tree, Bounds),
             NewTree = nit_tree:update(Tree, ElementId, NewTable),
@@ -449,6 +457,12 @@ navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     {ok, term(), term()} | unhandled.
 page_navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     case nit_focus:find_element(Tree, ElementId) of
+        #text_view{} ->
+            Key = case Dir of up -> page_up; down -> page_down end,
+            case text_view_key(Tree, ElementId, {key, Key}, Bounds) of
+                {ok, NewTree} -> {ok, NewTree, US};
+                false -> unhandled
+            end;
         #table{} = Table ->
             Lines = page_lines_table(Tree, Table#table.id, Table, Bounds),
             NewTable = navigate_table(Dir, Lines, Table, Tree, Bounds),
@@ -540,6 +554,15 @@ element_id(_) -> undefined.
 %%====================================================================
 %% Input Editing
 %%====================================================================
+
+%% Native viewer updates never invoke application callbacks or rebuild views.
+text_view_key(Tree, Id, Event, Bounds) when Id =/= undefined ->
+    case {nit_focus:find_element(Tree, Id), nit_bounds:find_element_bounds(Tree, Id, Bounds)} of
+        {#text_view{} = View, {ok, Resolved}} ->
+            {ok, nit_tree:update(Tree, Id, nit_el_text_view:key(View, Event, Resolved))};
+        _ -> false
+    end;
+text_view_key(_Tree, _Id, _Event, _Bounds) -> false.
 
 %% @doc Apply a character insertion at cursor position.
 %% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input.
@@ -849,6 +872,9 @@ map_tree_widgets(Element, Active, Fun, Bounds) ->
     map_tree_widget_children(Element, Visible, Fun, Bounds).
 
 map_tree_widget_children(#tree{} = Tree, Active, Fun, Bounds) -> Fun(Tree, Active, Bounds);
+map_tree_widget_children(#text_view{} = View, true, _Fun, Bounds) ->
+    %% Resizes/rebuilds retain source selection but clamp the visual viewport.
+    nit_el_text_view:scroll(View, down, 0, nit_el_text_view:bounds(View, Bounds));
 map_tree_widget_children(#box{} = E, A, F, B) ->
     E#box{children = map_tree_widget_layout(E, A, F, B)};
 map_tree_widget_children(#panel{} = E, A, F, B) ->

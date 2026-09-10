@@ -43,6 +43,7 @@
 %% @doc Get the module for an element type
 -spec element_module(atom()) -> module().
 element_module(text) -> nit_el_text;
+element_module(text_view) -> nit_el_text_view;
 element_module(box) -> nit_el_box;
 element_module(panel) -> nit_el_panel;
 element_module(vbox) -> nit_el_vbox;

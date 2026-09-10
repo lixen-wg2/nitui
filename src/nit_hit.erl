@@ -10,7 +10,7 @@
 
 %% Find interactive element at given screen coordinates
 -spec find_at(term(), integer(), integer(), #bounds{}) ->
-    {tab, term(), term()} | {button, term()} | {input, term()} |
+    {tab, term(), term()} | {button, term()} | {input, term()} | {text_view, term()} |
     {box, term()} | {scroll, term()} | {tabs_container, term()} | {table, term()} |
     {table_header, term(), term()} | {table_row, term(), integer()} | {list, term()} |
     {table_cell, term(), pos_integer(), term()} |
@@ -18,7 +18,19 @@
     {status_bar_item, binary() | string()} |
     {list_item, term(), integer()} | not_found.
 find_at(Tree, Col, Row, Bounds) ->
-    find_at_impl(Tree, Col, Row, Bounds).
+    case find_at_impl(Tree, Col, Row, Bounds) of
+        {text_view, Id} = Hit ->
+            %% Do not let a hidden ancestor or offscreen allocation claim hits.
+            Visible = lists:any(fun(#text_view{id = VId}) -> VId =:= Id end,
+                                nit_focus:visible_text_views(Tree)),
+            case Visible andalso Col > Bounds#bounds.x andalso
+                 Col =< Bounds#bounds.x + Bounds#bounds.width andalso
+                 Row > Bounds#bounds.y andalso Row =< Bounds#bounds.y + Bounds#bounds.height of
+                true -> Hit;
+                false -> not_found
+            end;
+        Hit -> Hit
+    end.
 
 find_at_impl(#panel{children = Children}, Col, Row, Bounds) ->
     find_in_children(Children, Col, Row, Bounds);
@@ -72,6 +84,14 @@ find_at_impl(#button{id = Id, x = X, y = Y, width = W, label = Label}, Col, Row,
         Row =:= ActualY + 1, Col >= ActualX + 1, Col =< ActualX + Width ->
             {button, Id};
         true -> not_found
+    end;
+
+find_at_impl(#text_view{visible = true, id = Id} = View, Col, Row, Bounds)
+        when Id =/= undefined ->
+    #bounds{x = X, y = Y, width = W, height = H} = nit_el_text_view:bounds(View, Bounds),
+    case Col > X andalso Col =< X + W andalso Row > Y andalso Row =< Y + H of
+        true -> {text_view, Id};
+        false -> not_found
     end;
 
 find_at_impl(#input{id = Id, x = X, y = Y, width = W}, Col, Row, Bounds) ->

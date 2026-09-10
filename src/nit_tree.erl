@@ -12,6 +12,7 @@
 -spec update(term(), term(), term()) -> term().
 %% Leaf elements - match by ID and replace
 update(#input{id = Id}, Id, NewElement) -> NewElement;
+update(#text_view{id = Id}, Id, NewElement) -> NewElement;
 update(#button{id = Id}, Id, NewElement) -> NewElement;
 update(#table{id = Id}, Id, NewElement) -> NewElement;
 update(#tabs{id = Id}, Id, NewElement) -> NewElement;
@@ -67,6 +68,9 @@ merge_state(Old, New) ->
 -spec merge_state(term(), term(), preserve_inputs | replace_inputs) -> term().
 
 %% Tables - preserve selection, scroll, and built-in sort state
+merge_state(#text_view{id = Id} = Old, #text_view{id = Id} = New, _InputMode) ->
+    nit_el_text_view:merge(Old, New);
+
 merge_state(#table{id = Id} = Old,
             #table{id = Id} = New, _InputMode) ->
     nit_el_table:merge_sort_state(Old, New);
@@ -176,6 +180,7 @@ get_element_id(#list{id = Id}) -> Id;
 get_element_id(#scroll{id = Id}) -> Id;
 get_element_id(#tree{id = Id}) -> Id;
 get_element_id(#input{id = Id}) -> Id;
+get_element_id(#text_view{id = Id}) -> Id;
 get_element_id(#tabs{id = Id}) -> Id;
 get_element_id(#box{id = Id}) -> Id;
 get_element_id(#vbox{id = Id}) -> Id;

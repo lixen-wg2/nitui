@@ -12,6 +12,7 @@
 
 -export([next_focus/2, prev_focus/2, find_element/2, find_container/2]).
 -export([collect_containers/1, collect_children/2]).
+-export([visible_text_views/1, text_view_target/3]).
 
 %%====================================================================
 %% API
@@ -20,14 +21,48 @@
 %% @doc Collect all focusable container IDs (for Tab navigation).
 -spec collect_containers(tuple()) -> [term()].
 collect_containers(Element) ->
-    lists:flatten(do_collect_containers(Element)).
+    filter_text_views(lists:flatten(do_collect_containers(Element)), Element).
 
 %% @doc Collect focusable children within a container (for arrow navigation).
 -spec collect_children(tuple(), term()) -> [term()].
 collect_children(Tree, ContainerId) ->
     case find_element(Tree, ContainerId) of
         undefined -> [];
-        Container -> lists:flatten(do_collect_children(Container))
+        Container -> filter_text_views(lists:flatten(do_collect_children(Container)), Tree)
+    end.
+
+%% Viewer routing must respect hidden ancestors and inactive tabs without
+%% changing the established focus policy of other widgets.
+visible_text_views(Element) when element(#box.visible, Element) =:= false -> [];
+visible_text_views(#text_view{} = View) -> [View];
+visible_text_views(Element) ->
+    lists:flatmap(fun visible_text_views/1, nit_element:children(Element)).
+
+filter_text_views(Ids, Tree) ->
+    VisibleIds = [Id || #text_view{id = Id, focusable = true} <- visible_text_views(Tree)],
+    [Id || Id <- Ids, not is_record(find_element(Tree, Id), text_view)
+                         orelse lists:member(Id, VisibleIds)].
+
+text_view_target(Tree, Container, Child) ->
+    Views = [V || #text_view{id = Id, focusable = true} = V <- visible_text_views(Tree),
+                  Id =/= undefined],
+    case [V || #text_view{id = Id} = V <- Views, Id =:= Child orelse Id =:= Container] of
+        [View | _] -> View;
+        [] ->
+            %% A tab's focus ID denotes its active content, as for tables.
+            case find_element(Tree, Container) of
+                #tabs{} = Tabs ->
+                    TabIds = collect_children(Tree, Container),
+                    case Child =:= undefined orelse lists:member(Child, TabIds) of
+                        true ->
+                            case [V || V <- visible_text_views(Tabs), lists:member(V, Views)] of
+                                [View | _] -> View;
+                                [] -> undefined
+                            end;
+                        false -> undefined
+                    end;
+                _ -> undefined
+            end
     end.
 
 %% @doc Get the next focusable element ID after CurrentId.
@@ -84,6 +119,8 @@ do_collect_containers(#tree{id = Id, focusable = true}) when Id =/= undefined ->
 do_collect_containers(#tree{}) -> [];
 do_collect_containers(#list{id = Id, focusable = true}) when Id =/= undefined -> [Id];
 do_collect_containers(#list{}) -> [];
+do_collect_containers(#text_view{id = Id, focusable = true, visible = true})
+        when Id =/= undefined -> [Id];
 do_collect_containers(#scroll{id = Id, focusable = true}) when Id =/= undefined -> [Id];
 do_collect_containers(#panel{children = Children}) -> [do_collect_containers(C) || C <- Children];
 do_collect_containers(#vbox{children = Children}) -> [do_collect_containers(C) || C <- Children];
@@ -98,6 +135,8 @@ do_collect_containers(_) -> [].
 
 do_collect_children(#box{children = Children}) ->
     lists:flatten([do_collect_child(C) || C <- Children]);
+do_collect_children(#text_view{} = View) -> do_collect_child(View);
+do_collect_children(#scroll{} = Scroll) -> viewer_child_ids(Scroll);
 do_collect_children(#tabs{tabs = TabList}) ->
     %% For tabs, the "children" are the tab IDs themselves
     [T#tab.id || T <- TabList];
@@ -109,6 +148,10 @@ do_collect_child(#button{id = Id, focusable = true, enabled = true, visible = tr
 do_collect_child(#button{}) -> [];
 do_collect_child(#input{id = Id, focusable = true}) when Id =/= undefined -> [Id];
 do_collect_child(#input{}) -> [];
+do_collect_child(#text_view{id = Id, focusable = true, visible = true})
+        when Id =/= undefined -> [Id];
+do_collect_child(#panel{} = Panel) -> viewer_child_ids(Panel);
+do_collect_child(#box{} = Box) -> viewer_child_ids(Box);
 do_collect_child(#table{id = Id, focusable = true}) when Id =/= undefined -> [Id];
 do_collect_child(#table{}) -> [];
 do_collect_child(#list{id = Id, focusable = true}) when Id =/= undefined -> [Id];
@@ -118,6 +161,10 @@ do_collect_child(#vbox{children = Children}) -> [do_collect_child(C) || C <- Chi
 do_collect_child(#hbox{children = Children}) -> [do_collect_child(C) || C <- Children];
 do_collect_child(#scroll{children = Children}) -> [do_collect_child(C) || C <- Children];
 do_collect_child(_) -> [].
+
+viewer_child_ids(Element) ->
+    [Id || #text_view{id = Id, focusable = true} <- visible_text_views(Element),
+           Id =/= undefined].
 
 find_next([CurrentId, NextId | _], CurrentId) -> NextId;
 find_next([_ | Rest], CurrentId) -> find_next(Rest, CurrentId);
@@ -129,6 +176,7 @@ find_prev(_, _) -> undefined.
 
 do_find(#button{id = Id} = E, Id) -> E;
 do_find(#input{id = Id} = E, Id) -> E;
+do_find(#text_view{id = Id} = E, Id) -> E;
 do_find(#table{id = Id} = E, Id) -> E;
 do_find(#tree{id = Id} = E, Id) -> E;
 do_find(#list{id = Id} = E, Id) -> E;
@@ -208,10 +256,12 @@ container_id(#table{id = Id, focusable = true}) when Id =/= undefined -> Id;
 container_id(#tree{id = Id, focusable = true}) when Id =/= undefined -> Id;
 container_id(#list{id = Id, focusable = true}) when Id =/= undefined -> Id;
 container_id(#scroll{id = Id, focusable = true}) when Id =/= undefined -> Id;
+container_id(#text_view{id = Id, focusable = true, visible = true}) when Id =/= undefined -> Id;
 container_id(_) -> undefined.
 
 get_element_id(#button{id = Id}) -> Id;
 get_element_id(#input{id = Id}) -> Id;
+get_element_id(#text_view{id = Id}) -> Id;
 get_element_id(#table{id = Id}) -> Id;
 get_element_id(#tree{id = Id}) -> Id;
 get_element_id(#list{id = Id}) -> Id;

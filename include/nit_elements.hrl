@@ -53,6 +53,20 @@
     wrap = false :: boolean()
 }).
 
+%% Read-only, wrapped text. Positions count grapheme clusters in the source,
+%% never terminal cells or visual line breaks. Clipboard writes are explicit.
+-record(text_view, {
+    ?ELEMENT_BASE,
+    content = <<>> :: binary() | string(),
+    cursor_pos = 0 :: non_neg_integer(),
+    selection_anchor = undefined :: undefined | non_neg_integer(),
+    offset = 0 :: non_neg_integer(),
+    show_scrollbar = true :: boolean(),
+    show_toolbar = true :: boolean(),
+    selection_style = #{bg => blue, fg => white} :: map(),
+    copy_status = idle :: term()
+}).
+
 %% Box element - container with optional border
 -record(box, {
     ?ELEMENT_BASE,

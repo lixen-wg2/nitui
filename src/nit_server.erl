@@ -30,7 +30,8 @@
 -ifdef(TEST).
 %% Exercise rebuilds and input routing without starting a terminal or
 %% duplicating this module's private state record in tests.
--export([rebuild_for_test/4, input_for_test/5, input_sequence_for_test/5]).
+-export([rebuild_for_test/4, input_for_test/5, input_sequence_for_test/5,
+         input_sequence_for_test/6]).
 -endif.
 
 -record(fullscreen, {
@@ -69,6 +70,9 @@
     cursor_timer = undefined :: undefined | reference(),  %% Timer ref for cursor blink
     %% Periodic refresh timer for live updates
     refresh_timer = undefined :: undefined | reference(),  %% Timer ref for periodic refresh
+    text_view_drag = undefined :: undefined | {main | modal, term(), term()},
+    text_view_paste = false :: boolean(),
+    clipboard_copy = fun nit_clipboard:copy/1 :: fun((binary()) -> term()),
     fullscreen = undefined :: undefined | #fullscreen{}
 }).
 
@@ -189,13 +193,14 @@ handle_cast(_Msg, State) ->
 
 %% Handle input events from nit_input
 handle_info({input, Event}, State) ->
-    handle_input(Event, State);
+    route_input(Event, State);
 
 %% Handle terminal resize
 handle_info({resize, Cols, Rows}, State) ->
     %% Reconcile current selections against the new active render bounds.
     NewBounds = #bounds{width = Cols, height = Rows},
     NewState = prepare_render_state(State#nit_state{bounds = NewBounds,
+                                                   text_view_drag = undefined,
                                                    prev_screen = undefined}, resize),
     nit_tty:clear(),
     {noreply, render_diff(NewState)};
@@ -261,11 +266,12 @@ safe_callback_tick(Cb, UserState) ->
 
 %% Set/update the active modal, picking an initial focus inside it.
 activate_modal(State, Modal) ->
-    State#nit_state{modal = Modal, modal_focus = init_modal_focus(Modal)}.
+    State#nit_state{modal = Modal, modal_focus = init_modal_focus(Modal),
+                    text_view_drag = undefined}.
 
 %% Clear the active modal and its focus tracking.
 deactivate_modal(State) ->
-    State#nit_state{modal = undefined, modal_focus = undefined}.
+    State#nit_state{modal = undefined, modal_focus = undefined, text_view_drag = undefined}.
 
 init_modal_focus(undefined) ->
     undefined;
@@ -327,6 +333,175 @@ set_active_child(modal, State = #nit_state{modal_focus = MF}, Ch) ->
 %%====================================================================
 %% Internal: Input handling
 %%====================================================================
+
+%% Keep viewer interactions native. In particular, never rebuild the application
+%% view in response to cursor movement, selection, wheel scrolling or copying.
+route_input({ctrl, $c} = Event, State) ->
+    handle_input(Event, State#nit_state{text_view_drag = undefined, text_view_paste = false});
+route_input({paste, 'end'}, State) ->
+    {noreply, State#nit_state{text_view_paste = false}};
+route_input(_Event, State = #nit_state{text_view_paste = true}) ->
+    {noreply, State};
+route_input({paste, start}, State) ->
+    {Tree, FC, Ch, _Ids, _Where} = active_focus(State),
+    IsViewer = is_record(nit_focus:text_view_target(Tree, FC, Ch), text_view),
+    {noreply, State#nit_state{text_view_paste = IsViewer, text_view_drag = undefined}};
+route_input({mouse, motion, left, Col, Row}, State = #nit_state{text_view_drag = Capture})
+        when Capture =/= undefined ->
+    text_view_drag(drag, Col, Row, State);
+route_input({mouse, release, _Button, Col, Row}, State) ->
+    text_view_drag(release, Col, Row, State);
+route_input({mouse, click, left, Col, Row} = Event, State0) ->
+    State = State0#nit_state{text_view_drag = undefined},
+    {Tree, OldFC, OldCh, Ids, Where} = active_focus(State),
+    case nit_hit:find_at(Tree, Col, Row, State#nit_state.bounds) of
+        {text_view, Id} ->
+            View = nit_focus:find_element(Tree, Id),
+            case View#text_view.focusable of
+                true ->
+                    FC = nit_engine:focus_container_for(Tree, Id),
+                    Focused = set_active(Where, State, Tree, FC, Id, Ids),
+                    {noreply, Pressed} = text_view_press(View, Col, Row, update_cursor_timer(Focused)),
+                    case {OldFC, OldCh} =:= {FC, Id} of
+                        true -> {noreply, Pressed};
+                        false -> {noreply, render_diff(Pressed)}
+                    end;
+                false -> {noreply, State}
+            end;
+        _ -> handle_input(Event, State)
+    end;
+route_input({mouse, scroll, Dir, Col, Row} = Event, State) when Dir =:= up; Dir =:= down ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    Bounds = State#nit_state.bounds,
+    case nit_hit:find_at(Tree, Col, Row, Bounds) of
+        {text_view, Id} ->
+            View = nit_focus:find_element(Tree, Id),
+            {ok, Resolved} = nit_bounds:find_element_bounds(Tree, Id, Bounds),
+            NewView = nit_el_text_view:scroll(View, Dir, 1, Resolved),
+            render_text_view(Where, Tree, NewView, State);
+        _ when Where =:= modal ->
+            %% Scope the isolation fix to viewers; retain other widget policies.
+            case nit_focus:visible_text_views(Tree) =/= [] orelse
+                 background_text_view_hit(State, Col, Row, Bounds) of
+                true -> {noreply, State};
+                false -> handle_input(Event, State)
+            end;
+        _ -> handle_input(Event, State)
+    end;
+route_input({mouse, _, _, _, _} = Event, State) ->
+    handle_input(Event, State);
+route_input(Event, State0) ->
+    State = State0#nit_state{text_view_drag = undefined},
+    {Tree, FC, Ch, _Ids, Where} = active_focus(State),
+    case nit_focus:text_view_target(Tree, FC, Ch) of
+        #text_view{} = View -> route_text_view_key(Event, View, Where, Tree, State);
+        _ -> route_without_text_view(Event, State)
+    end.
+
+route_without_text_view({ctrl, $a} = Event, State = #nit_state{modal = Modal})
+        when Modal =/= undefined ->
+    case focused_input_id(State) =:= undefined andalso
+         nit_focus:visible_text_views(State#nit_state.tree) =/= [] of
+        true -> {noreply, State};
+        false -> handle_input(Event, State)
+    end;
+route_without_text_view(Event, State) -> handle_input(Event, State).
+
+background_text_view_hit(State, Col, Row, Bounds) ->
+    case nit_hit:find_at(State#nit_state.tree, Col, Row, Bounds) of
+        {text_view, _} -> true;
+        _ -> false
+    end.
+
+route_text_view_key({char, $y}, View, Where, Tree, State) ->
+    copy_text_view(View, selection, Where, Tree, State);
+route_text_view_key({char, $Y}, View, Where, Tree, State) ->
+    copy_text_view(View, all, Where, Tree, State);
+route_text_view_key({char, $q} = Event, _View, _Where, _Tree, State) ->
+    forward_event(Event, State);
+route_text_view_key({ctrl, $a} = Event, View, Where, Tree, State) ->
+    text_view_key(Event, View, Where, Tree, State);
+route_text_view_key({key, {shift, Dir}} = Event, View, Where, Tree, State) ->
+    case text_view_navigation(Dir) of
+        true -> text_view_key(Event, View, Where, Tree, State);
+        false -> handle_input(Event, State)
+    end;
+route_text_view_key({key, Dir} = Event, View, Where, Tree, State) ->
+    case text_view_navigation(Dir) of
+        true -> text_view_key(Event, View, Where, Tree, State);
+        false -> handle_input(Event, State)
+    end;
+route_text_view_key({char, _}, _View, modal, _Tree, State) -> {noreply, State};
+route_text_view_key({char, _} = Event, _View, main, _Tree, State) ->
+    %% Read-only is not an input field: preserve application shortcuts such as
+    %% Refresh and Help. Bracketed paste is discarded before reaching here.
+    forward_event(Event, State);
+route_text_view_key({paste, _}, _View, _Where, _Tree, State) -> {noreply, State};
+route_text_view_key({ctrl, C}, _View, _Where, _Tree, State) when C =/= $c -> {noreply, State};
+route_text_view_key(Event, _View, _Where, _Tree, State)
+        when Event =:= enter; Event =:= backspace; Event =:= delete -> {noreply, State};
+route_text_view_key(Event, _View, _Where, _Tree, State) -> handle_input(Event, State).
+
+text_view_navigation(Dir) ->
+    lists:member(Dir, [left, right, up, down, home, 'end', page_up, page_down]).
+
+text_view_key(Event, #text_view{id = Id}, Where, Tree, State) ->
+    case nit_engine:text_view_key(Tree, Id, Event, State#nit_state.bounds) of
+        {ok, NewTree} ->
+            NewView = nit_focus:find_element(NewTree, Id),
+            render_text_view(Where, Tree, NewView, State);
+        false -> {noreply, State}
+    end.
+
+copy_text_view(View, Mode, Where, Tree, State = #nit_state{clipboard_copy = Copy}) ->
+    Result = case nit_el_text_view:copy_text(View, Mode) of
+        {ok, Text} -> Copy(Text);
+        Error -> Error
+    end,
+    render_text_view(Where, Tree, View#text_view{copy_status = Result}, State).
+
+text_view_press(View = #text_view{id = Id}, Col, Row, State) ->
+    {Tree, _FC, _Ch, _Ids, Where} = active_focus(State),
+    {ok, Resolved} = nit_bounds:find_element_bounds(Tree, Id, State#nit_state.bounds),
+    case nit_el_text_view:hit_action(View, Col, Row, Resolved) of
+        text ->
+            %% Clear a previous anchor before hit testing: toolbar padding and
+            %% scrollbar presses must not turn an old selection into a drag.
+            Pressed = nit_el_text_view:mouse(View#text_view{selection_anchor = undefined},
+                                              press, Col, Row, Resolved),
+            case Pressed#text_view.selection_anchor of
+                undefined -> render_text_view(Where, Tree, View, State);
+                _ ->
+                    Capture = {Where, Id, View#text_view.content},
+                    render_text_view(Where, Tree, Pressed,
+                                     State#nit_state{text_view_drag = Capture})
+            end;
+        Mode -> copy_text_view(View, Mode, Where, Tree, State)
+    end.
+
+text_view_drag(Phase, Col, Row, State) ->
+    {Tree, FC, Ch, _Ids, Where} = active_focus(State),
+    case {State#nit_state.text_view_drag, nit_focus:text_view_target(Tree, FC, Ch)} of
+        {{Where, Id, Content}, #text_view{id = Id, content = Content} = View} ->
+            case nit_bounds:find_element_bounds(Tree, Id, State#nit_state.bounds) of
+                {ok, Resolved} ->
+                    NewView = nit_el_text_view:mouse(View, Phase, Col, Row, Resolved),
+                    Capture = case Phase of release -> undefined; drag -> State#nit_state.text_view_drag end,
+                    render_text_view(Where, Tree, NewView, State#nit_state{text_view_drag = Capture});
+                not_found -> {noreply, State#nit_state{text_view_drag = undefined}}
+            end;
+        _ -> {noreply, State#nit_state{text_view_drag = undefined}}
+    end.
+
+render_text_view(Where, Tree, View, State) ->
+    NewTree = nit_tree:update(Tree, View#text_view.id, View),
+    NewState = set_active_tree(Where, State, NewTree),
+    {_ActiveTree, FC, Ch, _Ids, _Where} = active_focus(NewState),
+    Output = nit_render:render_text_view(NewTree, State#nit_state.bounds, FC, Ch, View#text_view.id),
+    nit_tty:write(Output),
+    %% The partial frame may contain wide graphemes. Invalidate the cell diff
+    %% rather than round-tripping it; the next ordinary render is a full frame.
+    {noreply, NewState#nit_state{prev_screen = undefined}}.
 
 handle_input(escape, State = #nit_state{modal = Modal}) when Modal =/= undefined ->
     handle_close_modal(State);
@@ -1027,6 +1202,16 @@ scroll_focused(Dir, Lines, State = #nit_state{tree = Tree,
             scroll_tree(Dir, Lines, Id, State);
         {scroll, Id} ->
             scroll_container(Dir, Lines, Id, State);
+        {text_view, _Id} when State#nit_state.modal =/= undefined ->
+            {noreply, State};
+        {text_view, Id} ->
+            case nit_bounds:find_element_bounds(Tree, Id, State#nit_state.bounds) of
+                {ok, Resolved} ->
+                    View = nit_focus:find_element(Tree, Id),
+                    NewView = nit_el_text_view:scroll(View, Dir, Lines, Resolved),
+                    render_text_view(main, Tree, NewView, State);
+                not_found -> {noreply, State}
+            end;
         undefined ->
             {noreply, State}
     end.
@@ -1335,6 +1520,7 @@ rebuild_view_state(NewUS, State = #nit_state{fullscreen = undefined}, MergeFromT
     State#nit_state{
         user_state = NewUS,
         tree = BaseTree,
+        text_view_drag = undefined,
         focused_container = Container,
         focused_child = Child,
         container_ids = ContainerIds
@@ -1349,6 +1535,7 @@ rebuild_view_state(NewUS, State = #nit_state{fullscreen = FS0}, MergeFromTree) -
             State#nit_state{
                 user_state = NewUS,
                 tree = FullTree,
+                text_view_drag = undefined,
                 fullscreen = FS0#fullscreen{tree = BaseTree},
                 focused_container = Container,
                 focused_child = Child,
@@ -1361,6 +1548,7 @@ rebuild_view_state(NewUS, State = #nit_state{fullscreen = FS0}, MergeFromTree) -
             State#nit_state{
                 user_state = NewUS,
                 tree = BaseTree,
+                text_view_drag = undefined,
                 fullscreen = undefined,
                 focused_container = Container,
                 focused_child = Child,
@@ -1424,6 +1612,7 @@ enter_fullscreen(Id, NewUS, State, MergeFromTree) ->
             NewState = State#nit_state{
                 user_state = NewUS,
                 tree = FullTree,
+                text_view_drag = undefined,
                 fullscreen = Saved,
                 focused_container = Container,
                 focused_child = Child,
@@ -1466,6 +1655,7 @@ exit_fullscreen(NewUS, State = #nit_state{fullscreen = FS, callback = Cb,
     NewState = State#nit_state{
         user_state = NewUS,
         tree = BaseTree,
+        text_view_drag = undefined,
         fullscreen = undefined,
         focused_container = Container,
         focused_child = Child,
@@ -1491,6 +1681,7 @@ stretch_fullscreen(#table{} = E) -> E#table{x = 0, y = 0, width = fill, height =
 stretch_fullscreen(#list{} = E) -> E#list{x = 0, y = 0, width = fill, height = fill};
 stretch_fullscreen(#tree{} = E) -> E#tree{x = 0, y = 0, width = fill, height = fill};
 stretch_fullscreen(#text{} = E) -> E#text{x = 0, y = 0, width = fill, height = fill};
+stretch_fullscreen(#text_view{} = E) -> E#text_view{x = 0, y = 0, width = fill, height = fill};
 stretch_fullscreen(#button{} = E) -> E#button{x = 0, y = 0, width = fill, height = fill};
 stretch_fullscreen(#input{} = E) -> E#input{x = 0, y = 0, width = fill, height = fill};
 stretch_fullscreen(#header{} = E) -> E#header{x = 0, y = 0, width = fill, height = fill};
@@ -1508,6 +1699,7 @@ do_switch(NewModule, Args, State) ->
                 callback = NewModule,
                 user_state = NewUS,
                 tree = NewTree,
+                text_view_drag = undefined,
                 focused_container = NewContainer,
                 focused_child = NewChild,
                 container_ids = ContainerIds,
@@ -1562,6 +1754,7 @@ do_push(NewModule, Args, State = #nit_state{
                 callback = NewModule,
                 user_state = NewUS,
                 tree = NewTree,
+                text_view_drag = undefined,
                 focused_container = NewContainer,
                 focused_child = NewChild,
                 container_ids = ContainerIds,
@@ -1617,6 +1810,7 @@ do_pop(State = #nit_state{nav_stack = [Entry | Rest]}) ->
         callback = Cb,
         user_state = US,
         tree = NewTree,
+        text_view_drag = undefined,
         focused_container = NewFC,
         focused_child = NewFCh,
         container_ids = ContainerIds,
@@ -1747,10 +1941,13 @@ render_prepared_diff(State = #nit_state{tree = Tree, bounds = Bounds,
             [nit_render:render_dimmed(Tree, Bounds, Child),
              nit_render:render_two_level(Modal, Bounds, ModalC, ModalCh, RenderOpts)]
     end,
-    case nit_unicode:contains_wide(AnsiOutput) of
+    case nit_unicode:contains_wide(AnsiOutput) orelse
+         nit_focus:visible_text_views(Tree) =/= [] orelse
+         nit_focus:visible_text_views(Modal) =/= [] of
         true ->
             %% The screen diff model is cell-based and cannot safely round-trip
-            %% wide glyphs like emoji. Fall back to a full redraw for these frames.
+            %% grapheme clusters (including narrow combining text). Preserve
+            %% the viewer's source-aware rendering on ordinary redraws as well.
             nit_tty:write([<<"\e[2J\e[H">>, AnsiOutput]),
             State#nit_state{prev_screen = undefined, mounted_ids = NewMounted};
         false ->
@@ -1837,6 +2034,7 @@ get_lifecycle_callback(_, _) -> undefined.
 
 %% Get on_mount field from various element types
 element_on_mount(#text{on_mount = V}) -> V;
+element_on_mount(#text_view{on_mount = V}) -> V;
 element_on_mount(#button{on_mount = V}) -> V;
 element_on_mount(#input{on_mount = V}) -> V;
 element_on_mount(#box{on_mount = V}) -> V;
@@ -1855,6 +2053,7 @@ element_on_mount(_) -> undefined.
 
 %% Get on_unmount field from various element types
 element_on_unmount(#text{on_unmount = V}) -> V;
+element_on_unmount(#text_view{on_unmount = V}) -> V;
 element_on_unmount(#button{on_unmount = V}) -> V;
 element_on_unmount(#input{on_unmount = V}) -> V;
 element_on_unmount(#box{on_unmount = V}) -> V;
@@ -1890,6 +2089,7 @@ collect_elements_with_id(_, Acc) ->
 
 %% Get id from element (returns undefined if no id)
 get_element_id(#text{id = Id}) -> Id;
+get_element_id(#text_view{id = Id}) -> Id;
 get_element_id(#button{id = Id}) -> Id;
 get_element_id(#input{id = Id}) -> Id;
 get_element_id(#box{id = Id}) -> Id;
@@ -1947,6 +2147,18 @@ update_cursor_timer(State = #nit_state{cursor_timer = OldTimer}) ->
 
 
 handle_shortcut_click(Key, State) ->
+    {Tree, FC, Ch, _Ids, _Where} = active_focus(State),
+    case nit_focus:text_view_target(Tree, FC, Ch) of
+        #text_view{} ->
+            case nit_shortcuts:parse(Key) of
+                btab -> route_input({key, btab}, State);
+                undefined -> {noreply, State};
+                Event -> route_input(Event, State)
+            end;
+        _ -> handle_legacy_shortcut_click(Key, State)
+    end.
+
+handle_legacy_shortcut_click(Key, State) ->
     case nit_shortcuts:parse(Key) of
         enter -> handle_activate(State);
         {char, 32} -> handle_char_input(32, State);
@@ -1978,16 +2190,30 @@ input_for_test(Callback, US, Tree, Modal, Event) ->
     input_sequence_for_test(Callback, US, Tree, Modal, [Event]).
 
 input_sequence_for_test(Callback, US, Tree, Modal, Events) ->
+    input_sequence_for_test(Callback, US, Tree, Modal, Events, #{}).
+
+input_sequence_for_test(Callback, US, Tree, Modal, Events, Opts) ->
     {Container, Child, ContainerIds} = resolve_focus(Tree, undefined, undefined),
     State = #nit_state{
-        callback = Callback, user_state = US, tree = Tree, bounds = #bounds{},
+        callback = Callback, user_state = US, tree = Tree,
+        bounds = maps:get(bounds, Opts, #bounds{}),
+        clipboard_copy = maps:get(clipboard_copy, Opts, fun nit_clipboard:copy/1),
         focused_container = Container, focused_child = Child,
         container_ids = ContainerIds,
         modal = Modal, modal_focus = init_modal_focus(Modal)
     },
-    NewState = lists:foldl(fun(Event, Acc) ->
-        {noreply, NextState} = handle_info({input, Event}, Acc),
-        NextState
-    end, State, Events),
+    NewState = lists:foldl(fun input_step_for_test/2, State, Events),
+    maybe_cancel_timer(NewState#nit_state.cursor_timer),
+    maybe_cancel_timer(NewState#nit_state.refresh_timer),
     {NewState#nit_state.user_state, NewState#nit_state.tree, NewState#nit_state.modal}.
+
+input_step_for_test({test_cast, Message}, State) ->
+    {noreply, NextState} = handle_cast(Message, State),
+    NextState;
+input_step_for_test({test_info, Message}, State) ->
+    {noreply, NextState} = handle_info(Message, State),
+    NextState;
+input_step_for_test(Event, State) ->
+    {noreply, NextState} = handle_info({input, Event}, State),
+    NextState.
 -endif.

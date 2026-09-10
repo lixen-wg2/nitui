@@ -13,6 +13,7 @@
 %% API
 -export([start/0, stop/0]).
 -export([selected_item/1, selected_item/2, selected_item/3]).
+-export([copy_to_clipboard/1]).
 
 %%--------------------------------------------------------------------
 %% @doc Start the NitUI TUI application.
@@ -32,6 +33,13 @@ start() ->
 -spec stop() -> ok | {error, term()}.
 stop() ->
     application:stop(nitui).
+
+%% @doc Explicitly copy UTF-8 text through the active terminal using OSC 52.
+%% `sent' means terminal output, not that the clipboard accepted the text.
+%% See nit_clipboard:copy/1 for opt-out, size limit and transport settings.
+-spec copy_to_clipboard(unicode:chardata()) -> nit_clipboard:result().
+copy_to_clipboard(Text) ->
+    nit_clipboard:copy(Text).
 
 %%--------------------------------------------------------------------
 %% @doc Return the selected item for a list element in the current view
