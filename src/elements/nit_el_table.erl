@@ -263,7 +263,7 @@ width_specs(Columns, Headers) ->
 width_specs([], _Headers, Acc) ->
     lists:reverse(Acc);
 width_specs([Col | RestCols], [Header | RestHeaders], Acc) ->
-    HeaderLen = string:length(to_string(Header)),
+    HeaderLen = nit_unicode:display_width(to_string(Header)),
     width_specs(RestCols, RestHeaders, [{Col#table_col.width, HeaderLen} | Acc]);
 width_specs([Col | RestCols], [], Acc) ->
     width_specs(RestCols, [], [{Col#table_col.width, 0} | Acc]).
@@ -282,7 +282,7 @@ update_content_widths(Widths, WidthSpecs, Row) ->
 update_content_widths([], _Specs, _Row, Acc) ->
     Acc;
 update_content_widths([Width | RestWidths], [{auto, _} | RestSpecs], [Cell | RestCells], Acc) ->
-    CellWidth = string:length(to_string(Cell)),
+    CellWidth = nit_unicode:display_width(to_string(Cell)),
     update_content_widths(RestWidths, RestSpecs, RestCells, [max(Width, CellWidth) | Acc]);
 update_content_widths([Width | RestWidths], [{auto, _} | RestSpecs], [], Acc) ->
     update_content_widths(RestWidths, RestSpecs, [], [Width | Acc]);
@@ -537,19 +537,17 @@ render_table_cells([], [Width | RestWidths], [], Acc) ->
 format_cell(_Text, Width, _Align) when Width =< 0 ->
     [];
 format_cell(Text, Width, Align) ->
-    Len = string:length(Text),
-    if
-        Len >= Width -> string:slice(Text, 0, Width);
-        true ->
-            Padding = Width - Len,
-            case Align of
-                left -> [Text, lists:duplicate(Padding, $\s)];
-                right -> [lists:duplicate(Padding, $\s), Text];
-                center ->
-                    Left = Padding div 2,
-                    Right = Padding - Left,
-                    [lists:duplicate(Left, $\s), Text, lists:duplicate(Right, $\s)]
-            end
+    Clipped = nit_unicode:truncate(Text, Width),
+    %% A wide glyph may leave an unused cell when it cannot fit. Align the
+    %% retained text and pad that residual space before the next separator.
+    Padding = Width - nit_unicode:display_width(Clipped),
+    case Align of
+        left -> [Clipped, lists:duplicate(Padding, $\s)];
+        right -> [lists:duplicate(Padding, $\s), Clipped];
+        center ->
+            Left = Padding div 2,
+            Right = Padding - Left,
+            [lists:duplicate(Left, $\s), Clipped, lists:duplicate(Right, $\s)]
     end.
 
 to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
@@ -576,7 +574,7 @@ overhead(#table{border = Border} = Table) ->
     2 * BorderOffset + header_height(Table).
 
 column_separator_width(#table{column_separator = Separator}) ->
-    string:length(Separator).
+    nit_unicode:display_width(Separator).
 
 total_rows(#table{total_rows = undefined, rows = Rows}) -> length(Rows);
 total_rows(#table{total_rows = Total}) -> Total.
@@ -596,20 +594,8 @@ visible_rows(Table, VisibleHeight) ->
             lists:sublist(Provider(Offset, Count), Count)
     end.
 
-pad_line(Text, Width) when Width =< 0 ->
-    case Text of
-        Bin when is_binary(Bin) -> <<>>;
-        _ -> []
-    end;
 pad_line(Text, Width) ->
-    Line = iolist_to_binary(Text),
-    Len = string:length(unicode:characters_to_list(Line)),
-    case Len >= Width of
-        true ->
-            unicode:characters_to_binary(string:slice(Line, 0, Width));
-        false ->
-            [Line, lists:duplicate(Width - Len, $\s)]
-    end.
+    format_cell(Text, Width, left).
 
 blank_line(Width) when Width =< 0 ->
     [];

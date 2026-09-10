@@ -1371,7 +1371,14 @@ rebuild_view_state(NewUS, State = #nit_state{fullscreen = FS0}, MergeFromTree) -
 rebuild_base_tree(NewUS, State = #nit_state{callback = Cb}, MergeFromTree) ->
     SourceTree = merge_source_tree(State, MergeFromTree),
     RawTree = nit_engine:call_view(Cb, NewUS, SourceTree),
-    nit_tree:merge_state(SourceTree, RawTree).
+    nit_tree:merge_state(SourceTree, RawTree, input_merge_mode(MergeFromTree)).
+
+%% Before native-state preservation was extended to async/event rebuilds, these
+%% paths could replace inputs (e.g. clear on submit). Keep that behavior without
+%% resetting table/tree/list selections or scrolling. Explicit native updates
+%% and ticks still preserve the user's unfinished input and cursor selection.
+input_merge_mode(undefined) -> replace_inputs;
+input_merge_mode(_NativeTree) -> preserve_inputs.
 
 %% Async updates/events use the active tree just like ticks. Widgets that
 %% explicitly own their state (e.g. controlled tables) opt out in merge_state.
@@ -1449,9 +1456,10 @@ toggle_fullscreen(Id, NewUS, State, MergeFromTree) ->
 exit_fullscreen(NewUS, State = #nit_state{fullscreen = undefined}, MergeFromTree) ->
     apply_view_update(NewUS, State, MergeFromTree);
 exit_fullscreen(NewUS, State = #nit_state{fullscreen = FS, callback = Cb,
-                                          tree = FullTree}, _MergeFromTree) ->
+                                          tree = FullTree}, MergeFromTree) ->
     BaseWithActive = nit_tree:update(FS#fullscreen.tree, FS#fullscreen.id, FullTree),
-    BaseTree = nit_tree:merge_state(BaseWithActive, nit_engine:call_view(Cb, NewUS, BaseWithActive)),
+    BaseTree = nit_tree:merge_state(BaseWithActive, nit_engine:call_view(Cb, NewUS, BaseWithActive),
+                                    input_merge_mode(MergeFromTree)),
     {Container, Child, ContainerIds} =
         resolve_focus(BaseTree, FS#fullscreen.focused_container,
                       FS#fullscreen.focused_child),

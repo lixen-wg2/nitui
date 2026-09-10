@@ -156,6 +156,67 @@ local_y_is_not_subtracted_twice_test() ->
     Result = nit_engine:prepare_tree(Raw, bounds(10)),
     ?assertMatch(#tree{selected = 20, offset = 13, y = 3, height = fill}, Result).
 
+anonymous_tabs_and_trees_use_structural_bounds_test_() ->
+    [?_test(begin
+        Bounds = #bounds{width = 40, height = 10},
+        Raw = #vbox{children = [#box{height = 1},
+            #tabs{id = TabsId, height = fill, tabs = [#tab{id = content, content = [
+                (flat_tree({once, 20}))#tree{id = TreeId}
+            ]}]}]},
+        Result = nit_engine:prepare_tree(Raw, Bounds),
+        #vbox{children = [_, #tabs{tabs = [#tab{content = [Tree]}]}]} = Result,
+        ?assertMatch(#tree{selected = 20, offset = 14,
+                          selection_request_applied = {once, 20}}, Tree),
+        assert_rendered_target(Result, Bounds, 5, 8),
+        ?assertEqual(Result, nit_engine:prepare_tree(Result, Bounds))
+    end) || TabsId <- [undefined, tabs], TreeId <- [undefined, tree]].
+
+scroll_children_use_stacked_viewport_test() ->
+    Bounds = #bounds{width = 40, height = 5},
+    Raw = #scroll{id = scroll, children = [#text{height = 2}, flat_tree({once, 20})]},
+    Result = nit_engine:prepare_tree(Raw, Bounds),
+    ?assertEqual({ok, #bounds{y = 2, width = 40, height = 3}},
+                 nit_bounds:find_element_bounds(Result, tree, Bounds)),
+    ?assertMatch(#tree{selected = 20, offset = 17,
+                      selection_request_applied = {once, 20}}, nit_focus:find_element(Result, tree)),
+    assert_rendered_target(Result, Bounds, 4, 4),
+    #scroll{children = [Text, Tree]} = Result,
+    Native = Result#scroll{children = [Text, nit_tree_nav:scroll(up, 10, 3, Tree)]},
+    ?assertEqual(Native, nit_engine:prepare_tree(Native, Bounds)),
+    Smaller = nit_engine:prepare_tree(Native, Bounds#bounds{height = 4}, resize),
+    ?assertMatch(#tree{selected = 20, offset = 18,
+                      selection_request_applied = {once, 20}}, nit_focus:find_element(Smaller, tree)).
+
+nested_scroll_tabs_use_content_size_and_clamped_offset_test() ->
+    Bounds = #bounds{width = 40, height = 6},
+    Inner = #scroll{children = [#text{height = 2}, flat_tree({once, 20})]},
+    Raw = #scroll{offset = 99, children = [#text{height = 2},
+        #tabs{height = 8, tabs = [#tab{id = content, content = [Inner]}]}]},
+    Result = nit_engine:prepare_tree(Raw, Bounds),
+    ?assertEqual({ok, #bounds{x = 1, y = 2, width = 37, height = 3}},
+                 nit_bounds:find_element_bounds(Result, tree, Bounds)),
+    ?assertMatch(#tree{selected = 20, offset = 17,
+                      selection_request_applied = {once, 20}}, nit_focus:find_element(Result, tree)),
+    assert_rendered_target(Result, Bounds, 5, 4),
+    ?assertEqual(99, Result#scroll.offset).
+
+scroll_expansions_precede_final_tab_layout_test_() ->
+    Auto = #tree{id = auto_tree, height = auto, selection_request = {once, 5}, nodes = [
+        #tree_node{id = root, expanded = false, children = numbered_nodes(5)}
+    ]},
+    Flat = flat_tree({once, 20}),
+    [?_test(begin
+        Raw = #tabs{height = fill, tabs = [#tab{id = content, content = [
+            #scroll{children = Children}
+        ]}]},
+        Result = nit_engine:prepare_tree(Raw, bounds(15)),
+        ?assertMatch({ok, #bounds{height = 6}},
+                     nit_bounds:find_element_bounds(Result, tree, bounds(15))),
+        ?assertMatch(#tree{selected = 20, offset = 14}, nit_focus:find_element(Result, tree)),
+        ?assertMatch(#tree{selected = 5, selection_request_applied = {once, 5}},
+                     nit_focus:find_element(Result, auto_tree))
+    end) || Children <- [[Flat, Auto], [Auto, Flat]]].
+
 initial_double_view_does_not_consume_test() ->
     Raw = flat_tree({initial, 20}),
     {_US, Viewed, _Ids, _Container, _Child} = nit_engine:init_focus_state(?MODULE, Raw),
@@ -227,16 +288,39 @@ inactive_tabs_defer_until_activated_test() ->
                       selection_request_applied = {once, target}},
                  nit_focus:find_element(Shown, tree)).
 
+nested_anonymous_tabs_defer_inactive_and_hidden_requests_test() ->
+    Raw = branch_tree({once, target}),
+    Cancelled = Raw#tree{id = cancelled, selection_request = undefined,
+                         selection_request_applied = {once, target}},
+    Scroll = #scroll{children = [#text{height = 1}, Raw]},
+    Inner = #tabs{height = fill, tabs = [
+        #tab{id = first}, #tab{id = second, content = [Scroll, Cancelled]}
+    ]},
+    Wrap = fun(Content) -> #tabs{height = fill, tabs = [#tab{id = outer, content = [Content]}]} end,
+    Deferred = nit_engine:prepare_tree(Wrap(Inner), bounds(12)),
+    #tabs{tabs = [#tab{content = [#tabs{tabs = [_, #tab{content = [DeferredScroll, Reset]}]}]}]} = Deferred,
+    ?assertEqual(Scroll, DeferredScroll),
+    ?assertEqual(Cancelled#tree{selection_request_applied = undefined},
+                 Reset),
+    Active = Inner#tabs{active_tab = second},
+    Hidden = Wrap(Active#tabs{visible = false}),
+    lists:foreach(fun(Mode) ->
+        ?assertEqual(Raw, nit_focus:find_element(nit_engine:prepare_tree(Hidden, bounds(12), Mode), tree))
+    end, [normal, resize]),
+    Shown = nit_engine:prepare_tree(Wrap(Active), bounds(12)),
+    ?assertMatch(#tree{selected = target, selection_request_applied = {once, target}},
+                 nit_focus:find_element(Shown, tree)).
+
 header_only_tabs_defer_requests_test_() ->
     [?_test(begin
-        Tabs = #tabs{id = tabs, width = Width, height = Height, tabs = [
+        Tabs = #tabs{id = Id, width = Width, height = Height, tabs = [
             #tab{id = content, content = [branch_tree({once, target})]}
         ]},
         ?assertEqual(Tabs, nit_engine:prepare_tree(Tabs, Bounds)),
         ?assertEqual(Tabs, nit_engine:prepare_tree(Tabs, Bounds, resize))
-    end) || {Width, Height, Bounds} <- [
+    end) || Id <- [undefined, tabs], {Width, Height, Bounds} <- [
         {fill, 1, bounds(10)}, {fill, 2, bounds(10)},
-        {2, fill, bounds(10)}, {fill, fill, bounds(2)}
+        {2, fill, bounds(10)}, {fill, fill, bounds(2)}, {fill, 8, bounds(2)}
     ]].
 
 undefined_resets_marker_while_hidden_test() ->
@@ -268,6 +352,12 @@ preparation_never_changes_focus_or_emits_callbacks_test() ->
     ?assertEqual(nit_focus:find_element(Raw, input), nit_focus:find_element(Prepared, input)).
 
 bounds(Height) -> #bounds{width = 80, height = Height}.
+
+assert_rendered_target(Tree, Bounds, X, Y) ->
+    Screen = nit_screen:from_ansi(nit_render:render_two_level(Tree, Bounds, undefined, undefined),
+                                  Bounds#bounds.width, Bounds#bounds.height),
+    ?assertEqual({$2, #{bg => white, fg => black}}, nit_screen:get_cell(Screen, X, Y)),
+    ?assertEqual({$0, #{bg => white, fg => black}}, nit_screen:get_cell(Screen, X + 1, Y)).
 
 numbered_nodes(Count) ->
     [#tree_node{id = N, label = integer_to_binary(N)} || N <- lists:seq(1, Count)].

@@ -823,64 +823,56 @@ prepare_tree(Tree, Bounds) ->
 -spec prepare_tree(term(), #bounds{}, normal | resize) -> term().
 prepare_tree(Tree, Bounds, Mode) when Mode =:= normal; Mode =:= resize ->
     Revealed = map_tree_widgets(Tree, true, fun
-        (Widget, true) -> nit_tree_nav:reveal_selection_request(Widget);
-        (#tree{selection_request = undefined} = Widget, false) ->
+        (Widget, true, _WidgetBounds) -> nit_tree_nav:reveal_selection_request(Widget);
+        (#tree{selection_request = undefined} = Widget, false, _WidgetBounds) ->
             Widget#tree{selection_request_applied = undefined};
-        (Widget, false) -> Widget
-    end, {Tree, Bounds}),
+        (Widget, false, _WidgetBounds) -> Widget
+    end, Bounds),
     %% Resolve every viewport against the same, fully expanded layout.
     map_tree_widgets(Revealed, true, fun
         (#tree{selection_request = Request, selection_request_applied = Request} = Widget,
-         true) when Mode =:= normal ->
+         true, _WidgetBounds) when Mode =:= normal ->
             Widget;
-        (#tree{id = Id} = Widget, true) ->
-            case nit_bounds:find_element_bounds(Revealed, Id, Bounds) of
-                {ok, #bounds{height = Height}} ->
-                    nit_tree_nav:finish_selection_request(Widget, Height, Mode);
-                not_found -> Widget
-            end;
-        (Widget, false) -> Widget
-    end, {Revealed, Bounds}).
+        (Widget, true, WidgetBounds) ->
+            Height = max(1, nit_tree_nav:resolved_height(Widget, WidgetBounds)),
+            nit_tree_nav:finish_selection_request(Widget, Height, Mode);
+        (Widget, false, _WidgetBounds) -> Widget
+    end, Bounds).
 
 %% Visit inactive descendants too, but only to reset cancelled requests.
 %% All UI records share ELEMENT_BASE's visible field.
-map_tree_widgets(Element, Active, Fun, Layout) ->
+map_tree_widgets(Element, Active, Fun, Bounds) ->
     Visible = case Element of
         E when element(#box.visible, E) =:= false -> false;
         _ -> Active
     end,
-    map_tree_widget_children(Element, Visible, Fun, Layout).
+    map_tree_widget_children(Element, Visible, Fun, Bounds).
 
-map_tree_widget_children(#tree{} = Tree, Active, Fun, _Layout) -> Fun(Tree, Active);
-map_tree_widget_children(#box{children = C} = E, A, F, L) ->
-    E#box{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#panel{children = C} = E, A, F, L) ->
-    E#panel{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#vbox{children = C} = E, A, F, L) ->
-    E#vbox{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#hbox{children = C} = E, A, F, L) ->
-    E#hbox{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#scroll{children = C} = E, A, F, L) ->
-    E#scroll{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#modal{children = C} = E, A, F, L) ->
-    E#modal{children = [map_tree_widgets(X, A, F, L) || X <- C]};
-map_tree_widget_children(#tabs{tabs = Tabs, active_tab = ActiveTab} = E, A, F, L) ->
+map_tree_widget_children(#tree{} = Tree, Active, Fun, Bounds) -> Fun(Tree, Active, Bounds);
+map_tree_widget_children(#box{} = E, A, F, B) ->
+    E#box{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#panel{} = E, A, F, B) ->
+    E#panel{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#vbox{} = E, A, F, B) ->
+    E#vbox{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#hbox{} = E, A, F, B) ->
+    E#hbox{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#scroll{} = E, A, F, B) ->
+    E#scroll{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#modal{} = E, A, F, B) ->
+    E#modal{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#tabs{tabs = Tabs, active_tab = ActiveTab} = E, A, F, B) ->
     ActiveId = resolve_active_tab(ActiveTab, [Id || #tab{id = Id} <- Tabs]),
-    ContentVisible = A andalso tab_content_visible(E, L),
+    {ContentVisible, ContentBounds} = nit_bounds:tab_content_bounds(E, B),
     E#tabs{tabs = [Tab#tab{content = [
-        map_tree_widgets(X, ContentVisible andalso Id =:= ActiveId, F, L) || X <- C
+        map_tree_widgets(X, A andalso ContentVisible andalso Id =:= ActiveId, F, ContentBounds)
+        || X <- C
     ]} || #tab{id = Id, content = C} = Tab <- Tabs]};
-map_tree_widget_children(Element, _Active, _Fun, _Layout) -> Element.
+map_tree_widget_children(Element, _Active, _Fun, _Bounds) -> Element.
 
-tab_content_visible(#tabs{height = Height}, _Layout) when is_integer(Height), Height < 3 ->
-    false;
-tab_content_visible(#tabs{width = Width}, _Layout) when is_integer(Width), Width =< 2 ->
-    false;
-tab_content_visible(#tabs{id = Id}, {Tree, Bounds}) ->
-    case nit_bounds:find_element_bounds(Tree, Id, Bounds) of
-        {ok, #bounds{width = Width, height = Height}} -> Width > 2 andalso Height >= 3;
-        not_found -> false
-    end.
+map_tree_widget_layout(Element, Active, Fun, Bounds) ->
+    [map_tree_widgets(Child, Active, Fun, ChildBounds)
+     || {Child, ChildBounds} <- nit_bounds:child_layout(Element, Bounds)].
 
 %%====================================================================
 %% Internal
