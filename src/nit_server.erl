@@ -944,18 +944,6 @@ handle_page(Dir, State = #nit_state{focused_container = Container, focused_child
             end
     end.
 
-
-
-
-
-
-
-
-
-
-%% Update table in tab content
-
-
 %%====================================================================
 %% Internal: Text input handling
 %%====================================================================
