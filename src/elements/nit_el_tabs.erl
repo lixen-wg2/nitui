@@ -38,19 +38,13 @@ render(#tabs{tabs = TabList, active_tab = ActiveTab0, style = Style,
     
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = case W of
-        auto -> Bounds#bounds.width - X;
-        fill -> Bounds#bounds.width - X;
-        _ -> W
-    end,
-    Height = case H of
-        auto -> Bounds#bounds.height - Y;
-        fill -> Bounds#bounds.height - Y;
-        _ -> H
-    end,
+    AvailableWidth = Bounds#bounds.width - X,
+    AvailableHeight = Bounds#bounds.height - Y,
+    Width = max(0, min(nit_ansi:resolve_size(W, AvailableWidth), AvailableWidth)),
+    Height = max(0, min(nit_ansi:resolve_size(H, AvailableHeight), AvailableHeight)),
     
     %% Render tab bar
-    TabBar = render_tab_bar(TabList, ActiveTab, ActualX, ActualY, Width, MergedStyle, Focused),
+    TabBar = render_tab_bar(TabList, ActiveTab, ActualX, ActualY, Width, Height, MergedStyle, Focused),
     
     %% Find active tab content
     ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
@@ -68,7 +62,10 @@ render(#tabs{tabs = TabList, active_tab = ActiveTab0, style = Style,
     
     %% Pass focused_child to children
     ChildOpts = Opts#{focused_child => FocusedChild},
-    ContentOutput = [nit_element:render(C, ContentBounds, ChildOpts) || C <- ActiveContent],
+    ContentOutput = case Width > 0 andalso Height >= 3 of
+        true -> [nit_element:render(C, ContentBounds, ChildOpts) || C <- ActiveContent];
+        false -> []
+    end,
     
     [TabBar, ContentOutput].
 
@@ -97,7 +94,10 @@ fixed_width(#tabs{width = W}) -> W.
 %% Internal
 %%====================================================================
 
-render_tab_bar(Tabs, ActiveTab, X, Y, Width, Style, Focused) ->
+render_tab_bar(_Tabs, _ActiveTab, _X, _Y, Width, Height, _Style, _Focused)
+  when Width =< 0; Height =< 0 ->
+    [];
+render_tab_bar(Tabs, ActiveTab, X, Y, Width, Height, Style, Focused) ->
     {TabLabels, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurrentX}) ->
             LabelBin = iolist_to_binary([Label]),
@@ -111,12 +111,13 @@ render_tab_bar(Tabs, ActiveTab, X, Y, Width, Style, Focused) ->
                 true ->
                     maps:merge(Style, #{dim => true})
             end,
-            TabOutput = [
-                nit_ansi:move_to(Y, CurrentX),
-                nit_ansi:style_to_ansi(TabStyle),
-                <<" ">>, LabelBin, <<" ">>,
-                nit_ansi:reset_style()
-            ],
+            PaddedLabel = iolist_to_binary([<<" ">>, LabelBin, <<" ">>]),
+            VisibleLabel = nit_ansi:truncate_content(PaddedLabel, X + Width - CurrentX),
+            TabOutput = case VisibleLabel of
+                <<>> -> [];
+                _ -> [nit_ansi:move_to(Y, CurrentX), nit_ansi:style_to_ansi(TabStyle),
+                      VisibleLabel, nit_ansi:reset_style()]
+            end,
             Separator = if
                 CurrentX + LabelLen + 2 < X + Width - 1 ->
                     [nit_ansi:style_to_ansi(Style), <<"│"/utf8>>, nit_ansi:reset_style()];
@@ -125,10 +126,10 @@ render_tab_bar(Tabs, ActiveTab, X, Y, Width, Style, Focused) ->
             {[Acc, TabOutput, Separator], CurrentX + LabelLen + 3}
         end,
         {[], X}, Tabs),
-    Underline = [
-        nit_ansi:move_to(Y + 1, X),
-        nit_ansi:style_to_ansi(Style),
-        nit_ansi:repeat_bin(<<"─"/utf8>>, Width),
-        nit_ansi:reset_style()
-    ],
+    %% A one-row tab bar must not underline (or clear) the following row.
+    Underline = case Height >= 2 of
+        true -> [nit_ansi:move_to(Y + 1, X), nit_ansi:style_to_ansi(Style),
+                 nit_ansi:repeat_bin(<<"─"/utf8>>, Width), nit_ansi:reset_style()];
+        false -> []
+    end,
     [TabLabels, Underline].

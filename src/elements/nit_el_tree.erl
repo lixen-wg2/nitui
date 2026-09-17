@@ -19,13 +19,20 @@
 render(#tree{visible = false}, _Bounds, _Opts) ->
     [];
 render(Tree = #tree{selected = Selected, indent = Indent, show_lines = ShowLines,
-                    x = X, y = Y, style = Style}, Bounds, Opts) ->
+                    x = X, y = Y, style = Style, full_row_selection = FullRow}, Bounds, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = width(Tree, Bounds),
+    Width = case FullRow of
+        true -> max(0, min(width(Tree, Bounds), Bounds#bounds.width - X));
+        false -> width(Tree, Bounds)
+    end,
     
     BaseStyle = maps:get(base_style, Opts, #{}),
     MergedStyle = maps:merge(BaseStyle, Style),
+    SelectionStyle = case maps:get(focused, Opts, false) of
+        true -> Tree#tree.focused_selected_style;
+        false -> Tree#tree.selected_style
+    end,
     
     %% Flatten and clip visible nodes to the current viewport
     VisibleNodes = nit_tree_nav:visible_nodes(Tree, Bounds),
@@ -34,7 +41,8 @@ render(Tree = #tree{selected = Selected, indent = Indent, show_lines = ShowLines
     {Output, _} = lists:foldl(
         fun({Depth, IsLast, Node}, {Acc, Row}) ->
             NodeOutput = render_node(Node, Depth, IsLast, Selected, 
-                                     ActualX, ActualY + Row, Width, Indent, ShowLines, MergedStyle),
+                                     ActualX, ActualY + Row, Width, Indent, ShowLines,
+                                     MergedStyle, SelectionStyle, FullRow),
             {[Acc, NodeOutput], Row + 1}
         end,
         {[], 0},
@@ -69,9 +77,13 @@ count_node(#tree_node{expanded = true, children = Children}) ->
     1 + count_visible_nodes(Children).
 
 render_node(#tree_node{id = Id, label = Label, icon = Icon, children = Children, expanded = Expanded},
-            Depth, IsLast, Selected, X, Y, Width, Indent, ShowLines, Style) ->
+            Depth, IsLast, Selected, X, Y, Width, Indent, ShowLines, Style, SelectionStyle, FullRow) ->
     %% Build prefix with tree lines
-    Prefix = build_prefix(Depth, IsLast, ShowLines, Indent),
+    Prefix0 = build_prefix(Depth, IsLast, ShowLines, Indent),
+    Prefix = case FullRow of
+        true -> nit_ansi:truncate_content(Prefix0, Width);
+        false -> Prefix0
+    end,
     
     %% Expand/collapse indicator
     Indicator = case Children of
@@ -90,19 +102,20 @@ render_node(#tree_node{id = Id, label = Label, icon = Icon, children = Children,
     
     %% Selection styling
     NodeStyle = case Id =:= Selected of
-        true -> maps:merge(Style, #{bg => white, fg => black});
+        true -> maps:merge(Style, SelectionStyle);
         false -> Style
     end,
-    
-    [
-        nit_ansi:move_to(Y, X),
-        nit_ansi:style_to_ansi(#{dim => true}),
-        Prefix,
-        nit_ansi:reset_style(),
-        nit_ansi:style_to_ansi(NodeStyle),
-        NodeContent,
-        nit_ansi:reset_style()
-    ].
+
+    case FullRow andalso Id =:= Selected of
+        true ->
+            Padding = max(0, Width - PrefixWidth - nit_unicode:display_width(NodeContent)),
+            [nit_ansi:move_to(Y, X), nit_ansi:style_to_ansi(NodeStyle),
+             Prefix, NodeContent, lists:duplicate(Padding, $\s), nit_ansi:reset_style()];
+        false ->
+            [nit_ansi:move_to(Y, X), nit_ansi:style_to_ansi(#{dim => true}),
+             Prefix, nit_ansi:reset_style(), nit_ansi:style_to_ansi(NodeStyle),
+             NodeContent, nit_ansi:reset_style()]
+    end.
 
 build_prefix(0, _IsLast, _ShowLines, _Indent) ->
     <<>>;

@@ -8,6 +8,7 @@
 
 -export([flatten_visible/1, visible_nodes/2, resolved_height/2, row_node/3]).
 -export([navigate/3, navigate/4, scroll/4, toggle/3, toggle_selected/2, select/3]).
+-export([reveal_selection_request/1, finish_selection_request/3]).
 
 %%====================================================================
 %% Public API
@@ -141,9 +142,55 @@ select(NodeId, Tree = #tree{nodes = Nodes}, Bounds) ->
             Tree
     end.
 
+%% Reveal before resolving layout: expanding an auto-height tree can also
+%% change the space allocated to its siblings. Do not consume the request yet.
+-spec reveal_selection_request(#tree{}) -> #tree{}.
+reveal_selection_request(#tree{selection_request = undefined} = Tree) ->
+    Tree#tree{selection_request_applied = undefined};
+reveal_selection_request(#tree{selection_request = Request,
+                              selection_request_applied = Request} = Tree) ->
+    Tree;
+reveal_selection_request(#tree{selection_request = {_Token, NodeId}, nodes = Nodes} = Tree) ->
+    case expand_ancestors(Nodes, NodeId) of
+        {ok, NewNodes} -> Tree#tree{nodes = NewNodes, selected = NodeId};
+        not_found -> Tree
+    end.
+
+%% Height is the final element viewport, NOT its parent's bounds. In particular,
+%% the tree's local y has already been deducted by nit_bounds.
+-spec finish_selection_request(#tree{}, pos_integer(), normal | resize) -> #tree{}.
+finish_selection_request(#tree{selection_request = {_Token, NodeId} = Request,
+                               selection_request_applied = Applied, nodes = Nodes} = Tree,
+                         Height, _Mode) when Request =/= Applied ->
+    Consumed = Tree#tree{selection_request_applied = Request},
+    case find_node(Nodes, NodeId, undefined) of
+        not_found -> Consumed;
+        {ok, _Node, _ParentId} -> ensure_visible_with_height(Consumed, max(1, Height))
+    end;
+finish_selection_request(Tree, Height, resize) ->
+    %% Reconcile the CURRENT selection, without reopening collapsed ancestors.
+    ensure_visible_with_height(Tree, max(1, Height));
+finish_selection_request(Tree, _Height, normal) ->
+    Tree.
+
 %%====================================================================
 %% Internal helpers
 %%====================================================================
+
+expand_ancestors([], _Id) ->
+    not_found;
+expand_ancestors([#tree_node{id = Id} | _] = Nodes, Id) ->
+    {ok, Nodes};
+expand_ancestors([#tree_node{children = Children} = Node | Rest], Id) ->
+    case expand_ancestors(Children, Id) of
+        {ok, NewChildren} ->
+            {ok, [Node#tree_node{expanded = true, children = NewChildren} | Rest]};
+        not_found ->
+            case expand_ancestors(Rest, Id) of
+                {ok, NewRest} -> {ok, [Node | NewRest]};
+                not_found -> not_found
+            end
+    end.
 
 flatten_nodes([], _Depth, Acc) ->
     Acc;

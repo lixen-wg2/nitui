@@ -6,12 +6,13 @@
 
 -include("nit_elements.hrl").
 
--export([update/3, merge_state/2]).
+-export([update/3, merge_state/2, merge_state/3]).
 
 %% Update an element in the tree by ID
 -spec update(term(), term(), term()) -> term().
 %% Leaf elements - match by ID and replace
 update(#input{id = Id}, Id, NewElement) -> NewElement;
+update(#text_view{id = Id}, Id, NewElement) -> NewElement;
 update(#button{id = Id}, Id, NewElement) -> NewElement;
 update(#table{id = Id}, Id, NewElement) -> NewElement;
 update(#tabs{id = Id}, Id, NewElement) -> NewElement;
@@ -59,62 +60,67 @@ update_tab(#tab{content = Content} = Tab, Id, NewElement) ->
 %% rebuilt (e.g., on tick). Elements are matched by ID.
 
 -spec merge_state(OldTree :: term(), NewTree :: term()) -> term().
+merge_state(Old, New) ->
+    merge_state(Old, New, preserve_inputs).
+
+%% Ticks/navigation retain edits in progress. Application-driven rebuilds may
+%% replace inputs while still retaining native state for all other widgets.
+-spec merge_state(term(), term(), preserve_inputs | replace_inputs) -> term().
 
 %% Tables - preserve selection, scroll, and built-in sort state
+merge_state(#text_view{id = Id} = Old, #text_view{id = Id} = New, _InputMode) ->
+    nit_el_text_view:merge(Old, New);
+
 merge_state(#table{id = Id} = Old,
-            #table{id = Id} = New) ->
+            #table{id = Id} = New, _InputMode) ->
     nit_el_table:merge_sort_state(Old, New);
 
 %% Lists - preserve selected index and scroll offset
 merge_state(#list{id = Id, selected = OldSel, offset = OldOff},
-            #list{id = Id} = New) ->
+            #list{id = Id} = New, _InputMode) ->
     New#list{selected = OldSel, offset = OldOff};
 
-%% Scroll containers - preserve scroll offset
-merge_state(#scroll{id = Id, offset = OldOff},
-            #scroll{id = Id} = New) ->
-    New#scroll{offset = OldOff};
-
-%% Trees - preserve selected and expanded states
-merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes},
-            #tree{id = Id} = New) ->
+%% Trees - preserve native state and the consumed request, not the new intent.
+merge_state(#tree{id = Id, selected = OldSel, offset = OldOff, nodes = OldNodes,
+                  selection_request_applied = OldApplied},
+            #tree{id = Id} = New, _InputMode) ->
+    Applied = case New#tree.selection_request of
+        undefined -> undefined;
+        _ -> OldApplied
+    end,
     New#tree{selected = OldSel, offset = OldOff,
+             selection_request_applied = Applied,
              nodes = merge_tree_nodes(OldNodes, New#tree.nodes)};
 
 %% Inputs - preserve value, cursor position, and active selection
 merge_state(#input{id = Id, value = OldVal, cursor_pos = OldPos,
                    selection_anchor = OldAnchor},
-            #input{id = Id} = New) ->
+            #input{id = Id} = New, preserve_inputs) ->
     New#input{value = OldVal, cursor_pos = OldPos,
               selection_anchor = OldAnchor};
 
-%% Tabs - preserve active_tab
-merge_state(#tabs{id = Id, active_tab = OldActive},
-            #tabs{id = Id} = New) ->
-    New#tabs{active_tab = OldActive};
-
 %% Container elements - recurse into children and merge
-merge_state(#vbox{children = OldChildren}, #vbox{children = NewChildren} = New) ->
-    New#vbox{children = merge_children(OldChildren, NewChildren)};
-merge_state(#hbox{children = OldChildren}, #hbox{children = NewChildren} = New) ->
-    New#hbox{children = merge_children(OldChildren, NewChildren)};
-merge_state(#box{children = OldChildren}, #box{children = NewChildren} = New) ->
-    New#box{children = merge_children(OldChildren, NewChildren)};
-merge_state(#panel{children = OldChildren}, #panel{children = NewChildren} = New) ->
-    New#panel{children = merge_children(OldChildren, NewChildren)};
-merge_state(#modal{children = OldChildren}, #modal{children = NewChildren} = New) ->
-    New#modal{children = merge_children(OldChildren, NewChildren)};
-merge_state(#scroll{children = OldChildren} = Old, #scroll{children = NewChildren} = New) ->
+merge_state(#vbox{children = OldChildren}, #vbox{children = NewChildren} = New, InputMode) ->
+    New#vbox{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#hbox{children = OldChildren}, #hbox{children = NewChildren} = New, InputMode) ->
+    New#hbox{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#box{children = OldChildren}, #box{children = NewChildren} = New, InputMode) ->
+    New#box{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#panel{children = OldChildren}, #panel{children = NewChildren} = New, InputMode) ->
+    New#panel{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#modal{children = OldChildren}, #modal{children = NewChildren} = New, InputMode) ->
+    New#modal{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#scroll{children = OldChildren} = Old, #scroll{children = NewChildren} = New, InputMode) ->
     %% For scroll, also preserve offset
     Merged = merge_state_scroll_only(Old, New),
-    Merged#scroll{children = merge_children(OldChildren, NewChildren)};
-merge_state(#tabs{tabs = OldTabs} = Old, #tabs{tabs = NewTabs} = New) ->
+    Merged#scroll{children = merge_children(OldChildren, NewChildren, InputMode)};
+merge_state(#tabs{tabs = OldTabs} = Old, #tabs{tabs = NewTabs} = New, InputMode) ->
     %% Preserve active_tab and merge tab contents
     Merged = merge_state_tabs_only(Old, New),
-    Merged#tabs{tabs = merge_tabs(OldTabs, NewTabs)};
+    Merged#tabs{tabs = merge_tabs(OldTabs, NewTabs, InputMode)};
 
 %% No state to merge - return new as-is
-merge_state(_Old, New) -> New.
+merge_state(_Old, New, _InputMode) -> New.
 
 %% Helper to merge scroll element state only (without children)
 merge_state_scroll_only(#scroll{id = Id, offset = OldOff},
@@ -129,31 +135,31 @@ merge_state_tabs_only(#tabs{id = Id, active_tab = OldActive},
 merge_state_tabs_only(_Old, New) -> New.
 
 %% Merge children lists by ID when possible and positionally for anonymous layout nodes.
-merge_children(OldChildren, NewChildren) ->
+merge_children(OldChildren, NewChildren, InputMode) ->
     OldMap = build_id_map(OldChildren),
     OldAnonymous = anonymous_children(OldChildren),
-    {Merged, _RemainingAnonymous} = merge_children(NewChildren, OldMap, OldAnonymous, []),
+    {Merged, _RemainingAnonymous} = merge_children(NewChildren, OldMap, OldAnonymous, [], InputMode),
     lists:reverse(Merged).
 
-merge_children([], _OldMap, OldAnonymous, Acc) ->
+merge_children([], _OldMap, OldAnonymous, Acc, _InputMode) ->
     {Acc, OldAnonymous};
-merge_children([NewChild | Rest], OldMap, OldAnonymous, Acc) ->
-    {MergedChild, RemainingAnonymous} = merge_child(NewChild, OldMap, OldAnonymous),
-    merge_children(Rest, OldMap, RemainingAnonymous, [MergedChild | Acc]).
+merge_children([NewChild | Rest], OldMap, OldAnonymous, Acc, InputMode) ->
+    {MergedChild, RemainingAnonymous} = merge_child(NewChild, OldMap, OldAnonymous, InputMode),
+    merge_children(Rest, OldMap, RemainingAnonymous, [MergedChild | Acc], InputMode).
 
-merge_child(NewChild, OldMap, OldAnonymous) ->
+merge_child(NewChild, OldMap, OldAnonymous, InputMode) ->
     case get_element_id(NewChild) of
         undefined ->
             case OldAnonymous of
                 [OldChild | Rest] ->
-                    {merge_state(OldChild, NewChild), Rest};
+                    {merge_state(OldChild, NewChild, InputMode), Rest};
                 [] ->
                     {NewChild, []}
             end;
         Id ->
             case maps:get(Id, OldMap, undefined) of
                 undefined -> {NewChild, OldAnonymous};
-                OldChild -> {merge_state(OldChild, NewChild), OldAnonymous}
+                OldChild -> {merge_state(OldChild, NewChild, InputMode), OldAnonymous}
             end
     end.
 
@@ -174,6 +180,7 @@ get_element_id(#list{id = Id}) -> Id;
 get_element_id(#scroll{id = Id}) -> Id;
 get_element_id(#tree{id = Id}) -> Id;
 get_element_id(#input{id = Id}) -> Id;
+get_element_id(#text_view{id = Id}) -> Id;
 get_element_id(#tabs{id = Id}) -> Id;
 get_element_id(#box{id = Id}) -> Id;
 get_element_id(#vbox{id = Id}) -> Id;
@@ -191,17 +198,17 @@ get_element_id(#spacer{id = Id}) -> Id;
 get_element_id(_) -> undefined.
 
 %% Merge tab contents
-merge_tabs(OldTabs, NewTabs) ->
+merge_tabs(OldTabs, NewTabs, InputMode) ->
     OldTabMap = lists:foldl(fun(#tab{id = Id} = T, Acc) ->
         maps:put(Id, T, Acc)
     end, #{}, OldTabs),
-    [merge_tab(T, OldTabMap) || T <- NewTabs].
+    [merge_tab(T, OldTabMap, InputMode) || T <- NewTabs].
 
-merge_tab(#tab{id = Id, content = NewContent} = NewTab, OldTabMap) ->
+merge_tab(#tab{id = Id, content = NewContent} = NewTab, OldTabMap, InputMode) ->
     case maps:get(Id, OldTabMap, undefined) of
         undefined -> NewTab;
         #tab{content = OldContent} ->
-            NewTab#tab{content = merge_children(OldContent, NewContent)}
+            NewTab#tab{content = merge_children(OldContent, NewContent, InputMode)}
     end.
 
 merge_tree_nodes(OldNodes, NewNodes) ->

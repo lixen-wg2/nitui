@@ -53,12 +53,29 @@
     wrap = false :: boolean()
 }).
 
+%% Read-only, wrapped text. Positions count grapheme clusters in the source,
+%% never terminal cells or visual line breaks. Clipboard writes are explicit.
+-record(text_view, {
+    ?ELEMENT_BASE,
+    content = <<>> :: binary() | string(),
+    cursor_pos = 0 :: non_neg_integer(),
+    selection_anchor = undefined :: undefined | non_neg_integer(),
+    offset = 0 :: non_neg_integer(),
+    show_scrollbar = true :: boolean(),
+    show_toolbar = true :: boolean(),
+    selection_style = #{bg => blue, fg => white} :: map(),
+    copy_status = idle :: term()
+}).
+
 %% Box element - container with optional border
 -record(box, {
     ?ELEMENT_BASE,
     border = none :: none | single | double | rounded,
     title = undefined :: undefined | binary() | string(),
-    children = [] :: [tuple()]  %% Child elements
+    children = [] :: [tuple()],  %% Child elements
+    focus_within = false :: boolean(),     %% Highlight when a visible descendant has focus
+    focused_border = undefined :: undefined | single | double | rounded,
+    focused_style = #{fg => yellow, bold => true} :: map()
 }).
 
 %% Panel element - simple container without border
@@ -89,7 +106,10 @@
 -record(button, {
     ?ELEMENT_BASE,
     label = <<>> :: binary() | string(),
-    on_click = undefined :: undefined | {atom(), atom()} | fun()  %% {Module, Function} or fun()
+    on_click = undefined :: undefined | {atom(), atom()} | fun(),  %% {Module, Function} or fun()
+    focused_style = #{bold => true, underline => true} :: map(),
+    enabled = true :: boolean(),          %% Disabled buttons neither focus nor activate
+    disabled_style = #{fg => bright_black, dim => true} :: map()
 }).
 
 %% Input element - text input field
@@ -119,7 +139,9 @@
 -record(table_col, {
     id :: term(),                          %% Column identifier
     header = <<>> :: binary() | string(),  %% Column header text
-    width = auto :: auto | pos_integer(),  %% Column width
+    %% Integers retain legacy proportional sizing. Fixed widths never shrink;
+    %% fill columns share the space remaining after fixed/preferred columns.
+    width = auto :: auto | pos_integer() | {fixed, pos_integer()} | fill,
     align = left :: left | center | right  %% Text alignment
 }).
 
@@ -143,8 +165,20 @@
     on_select = undefined :: undefined | {atom(), atom()} | fun(),
     %% Virtual scrolling fields
     total_rows = undefined :: undefined | non_neg_integer(),  %% Total row count (for virtual scrolling)
-    row_provider = undefined :: undefined | fun((StartIdx :: non_neg_integer(), Count :: pos_integer()) -> [[term()]])
+    row_provider = undefined :: undefined | fun((StartIdx :: non_neg_integer(), Count :: pos_integer()) -> [[term()]]),
     %% row_provider is called with 0-based start index and count, returns list of rows
+    row_keys = [] :: [term()],             %% Unique keys parallel to rows (all absolute rows in virtual mode)
+    controlled = false :: boolean(),       %% Rebuild uses new selection/scroll/sort, not previous widget state
+    header_separator = true :: boolean(),  %% Horizontal rule below header (false = one-line header)
+    header_style = #{} :: map(),            %% Overrides table style and default bold on header only
+    column_separator = " " :: binary() | string(), %% Between columns, e.g. <<"│"/utf8>>
+    selected_style = #{bg => cyan, fg => black} :: map(),
+    focused_selected_style = #{bg => white, fg => black, bold => true} :: map(),
+    activate_on_click = false :: boolean(), %% Select and activate the clicked row in one event
+    %% Column IDs whose data cells select/focus and emit only
+    %% {table_cell_click, TableId, RowIdx, ColumnId, RowData} (RowIdx is 1-based).
+    %% Includes cell padding, not separators/trailing space; headers still sort.
+    clickable_columns = [] :: [term()]
 }).
 
 %% Tab definition for tabs widget
@@ -243,7 +277,14 @@
     offset = 0 :: non_neg_integer(),       %% Scroll offset for clipped trees
     indent = 2 :: pos_integer(),           %% Indentation per level
     show_lines = true :: boolean(),        %% Show tree lines (├─, └─, │)
-    on_select = undefined :: undefined | {atom(), atom()} | fun()
+    on_select = undefined :: undefined | {atom(), atom()} | fun(),
+    selected_style = #{bg => white, fg => black} :: map(),
+    focused_selected_style = #{bg => white, fg => black} :: map(),
+    full_row_selection = false :: boolean(), %% Include prefix and padding in selection
+    %% One-shot selection/reveal intent; change the token to repeat a request.
+    %% Interactive selection, expansion and scroll survive unchanged requests.
+    selection_request = undefined :: undefined | {term(), term()},
+    selection_request_applied = undefined :: undefined | {term(), term()} %% Framework-owned
 }).
 
 %% Scroll container - scrollable viewport for content

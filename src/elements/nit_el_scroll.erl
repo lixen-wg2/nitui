@@ -12,6 +12,7 @@
 -include("nit_elements.hrl").
 
 -export([render/3, height/2, width/2, fixed_width/1]).
+-export([content_size/2]).
 
 %%====================================================================
 %% nit_element callbacks
@@ -20,21 +21,9 @@
 -spec render(#scroll{}, #bounds{}, map()) -> iolist().
 render(#scroll{visible = false}, _Bounds, _Opts) ->
     [];
-render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar}, Bounds, Opts) ->
+render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar} = Scroll, Bounds, Opts) ->
     ViewHeight = max(1, Bounds#bounds.height),
-    TotalHeight0 = calculate_content_height(Children, Bounds),
-    NeedsScrollbar0 = ShowBar andalso TotalHeight0 > ViewHeight,
-
-    %% Adjust bounds for scrollbar if shown
-    ContentWidth = if NeedsScrollbar0 ->
-                          max(1, Bounds#bounds.width - 1);
-                      true ->
-                          Bounds#bounds.width
-                   end,
-    TotalHeight = case NeedsScrollbar0 of
-        true -> calculate_content_height(Children, Bounds#bounds{width = ContentWidth});
-        false -> TotalHeight0
-    end,
+    {ContentWidth, TotalHeight} = content_size(Scroll, Bounds),
     ClampedOffset = clamp_offset(Offset, TotalHeight, ViewHeight),
 
     %% Render visible portion of children
@@ -44,7 +33,8 @@ render(#scroll{children = Children, offset = Offset, show_scrollbar = ShowBar}, 
 
     %% Render scrollbar if needed
     ScrollbarOutput = if ShowBar andalso TotalHeight > ViewHeight ->
-                             render_scrollbar(Bounds, ClampedOffset, TotalHeight, ViewHeight);
+                             render_scrollbar(Bounds, ClampedOffset, TotalHeight, ViewHeight,
+                                              maps:get(base_style, Opts, #{}));
                          true ->
                              []
                       end,
@@ -64,6 +54,19 @@ width(#scroll{width = W}, _Bounds) -> W.
 -spec fixed_width(#scroll{}) -> auto | pos_integer().
 fixed_width(#scroll{width = fill}) -> auto;
 fixed_width(#scroll{width = W}) -> W.
+
+%% @doc Content dimensions for resolved viewport bounds. Rendering, navigation
+%% and hit testing must all remeasure wrapped children after reserving the bar.
+-spec content_size(#scroll{}, #bounds{}) -> {pos_integer(), non_neg_integer()}.
+content_size(#scroll{children = Children, show_scrollbar = ShowBar}, Bounds) ->
+    TotalHeight = calculate_content_height(Children, Bounds),
+    case ShowBar andalso TotalHeight > max(1, Bounds#bounds.height) of
+        true ->
+            ContentWidth = max(1, Bounds#bounds.width - 1),
+            {ContentWidth, calculate_content_height(Children, Bounds#bounds{width = ContentWidth})};
+        false ->
+            {Bounds#bounds.width, TotalHeight}
+    end.
 
 %%====================================================================
 %% Internal functions
@@ -103,7 +106,7 @@ render_child_window(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, Wi
         true ->
             ChildBounds = #bounds{x = DestX, y = DestY + ChildY - ClipTop,
                                   width = Width, height = Height},
-            nit_element:render(Child, ChildBounds, Opts);
+            render_child(Child, ChildBounds, Opts);
         false ->
             render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom,
                                  DestX, DestY, Width, Opts)
@@ -120,7 +123,7 @@ render_clipped_child(#vbox{children = Children, spacing = Spacing, x = X, y = Y}
                         DestX + X, DestY, Width, Opts, []);
 render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, Width, Opts) ->
     OffscreenBounds = #bounds{x = 0, y = 0, width = Width, height = Height},
-    OffscreenOutput = nit_element:render(Child, OffscreenBounds, Opts),
+    OffscreenOutput = render_child(Child, OffscreenBounds, Opts),
     OffscreenScreen = nit_screen:from_ansi(OffscreenOutput, Width, Height),
     VisibleTop = max(ChildY, ClipTop),
     VisibleBottom = min(ChildY + Height, ClipBottom),
@@ -128,6 +131,12 @@ render_clipped_child(Child, ChildY, Height, ClipTop, ClipBottom, DestX, DestY, W
     RelativeOffset = VisibleTop - ChildY,
     TargetY = DestY + VisibleTop - ClipTop,
     viewport_to_ansi(OffscreenScreen, Width, VisibleHeight, RelativeOffset, DestX, TargetY).
+
+%% Internal render hook lets focus-aware renderers retain their focus context
+%% through both direct and offscreen paths. Plain element rendering is unchanged.
+render_child(Child, Bounds, Opts) ->
+    Render = maps:get(render_child, Opts, fun nit_element:render/3),
+    Render(Child, Bounds, Opts).
 
 height_value({flex, Min}) ->
     Min;
@@ -168,7 +177,7 @@ char_to_binary(Bin) when is_binary(Bin) ->
 clamp_offset(Offset, TotalHeight, ViewHeight) ->
     min(max(0, Offset), max(0, TotalHeight - ViewHeight)).
 
-render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight) ->
+render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight, BaseStyle) ->
     %% Calculate scrollbar position and size
     BarX = Bounds#bounds.x + Bounds#bounds.width - 1,
     BarY = Bounds#bounds.y,
@@ -185,19 +194,20 @@ render_scrollbar(Bounds, Offset, TotalHeight, ViewHeight) ->
                end,
     
     %% Render scrollbar track and thumb
-    render_scrollbar_lines(BarX, BarY, ViewHeight, ThumbPos, ThumbSize, []).
+    Style = maps:merge(#{fg => gray}, BaseStyle),
+    render_scrollbar_lines(BarX, BarY, ViewHeight, ThumbPos, ThumbSize, Style, []).
 
-render_scrollbar_lines(_X, _Y, 0, _ThumbPos, _ThumbSize, Acc) ->
+render_scrollbar_lines(_X, _Y, 0, _ThumbPos, _ThumbSize, _Style, Acc) ->
     lists:reverse(Acc);
-render_scrollbar_lines(X, Y, Remaining, ThumbPos, ThumbSize, Acc) ->
+render_scrollbar_lines(X, Y, Remaining, ThumbPos, ThumbSize, Style, Acc) ->
     LineIdx = length(Acc),
     Char = if LineIdx >= ThumbPos andalso LineIdx < ThumbPos + ThumbSize ->
-                  <<"█">>;  %% Thumb
+                  <<"█"/utf8>>;  %% Thumb
               true ->
-                  <<"░">>   %% Track
+                  <<"░"/utf8>>   %% Track
            end,
     Line = [nit_ansi:move_to(Y + LineIdx, X),
-            nit_ansi:style_to_ansi(#{fg => gray}),
+            nit_ansi:style_to_ansi(Style),
             Char,
             nit_ansi:reset_style()],
-    render_scrollbar_lines(X, Y, Remaining - 1, ThumbPos, ThumbSize, [Line | Acc]).
+    render_scrollbar_lines(X, Y, Remaining - 1, ThumbPos, ThumbSize, Style, [Line | Acc]).

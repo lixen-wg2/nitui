@@ -7,82 +7,84 @@
 -include("nit_elements.hrl").
 
 -export([find_element_bounds/3]).
+-export([child_layout/2, tab_content_bounds/2]).
 
 -spec find_element_bounds(tuple(), term(), #bounds{}) -> {ok, #bounds{}} | not_found.
 find_element_bounds(Element, Id, Bounds) ->
-    do_find_bounds(Element, Id, Bounds).
+    case nit_focus:find_element(Element, Id) of
+        #text_view{} = View ->
+            case lists:member(View, nit_focus:visible_text_views(Element)) of
+                true -> do_find_bounds(Element, Id, Bounds);
+                false -> not_found
+            end;
+        _ -> do_find_bounds(Element, Id, Bounds)
+    end.
 
-do_find_bounds(#panel{children = Children}, Id, Bounds) ->
-    find_in_children(Children, Id, Bounds);
-do_find_bounds(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Id, Bounds) ->
+%% Bounds passed to each child renderer, before the child's own local offsets.
+%% Keep this structural: anonymous records must not need an ID lookup for layout.
+-spec child_layout(tuple(), #bounds{}) -> [{tuple(), #bounds{}}].
+child_layout(#panel{children = Children}, Bounds) ->
+    [{Child, Bounds} || Child <- Children];
+child_layout(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds) ->
     StartBounds = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
     ChildHeights = nit_layout:calculate_vbox_heights(Children, Bounds, Spacing, Y),
-    find_in_vbox(lists:zip(Children, ChildHeights), Id, StartBounds, Spacing,
-                 StartBounds#bounds.y);
-do_find_bounds(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Id, Bounds) ->
+    stack_layout(Children, ChildHeights, StartBounds, Spacing, vertical);
+child_layout(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds) ->
     StartBounds = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
     ChildWidths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
-    find_in_hbox(lists:zip(Children, ChildWidths), Id, StartBounds, Spacing,
-                 StartBounds#bounds.x);
-do_find_bounds(#box{id = ElementId, children = Children, border = Border,
-                    x = X, y = Y, width = W, height = H}, Id, Bounds) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    Width = resolve_dimension(W, Bounds#bounds.width - X),
-    Height = resolve_dimension(H, Bounds#bounds.height - Y),
-    ElementBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-    case ElementId =:= Id of
-        true ->
-            {ok, ElementBounds};
-        false ->
-            ChildBounds = case Border of
-                none ->
-                    #bounds{x = ActualX, y = ActualY,
-                            width = max(1, Width), height = max(1, Height)};
-                _ ->
-                    #bounds{x = ActualX + 1, y = ActualY + 1,
-                            width = max(1, Width - 2),
-                            height = max(1, Height - 2)}
-            end,
-            find_in_children(Children, Id, ChildBounds)
+    stack_layout(Children, ChildWidths, StartBounds, Spacing, horizontal);
+child_layout(#box{children = Children, border = Border} = Box, Bounds) ->
+    Inset = case Border of none -> 0; _ -> 1 end,
+    ChildBounds = inset_bounds(resolve_container_bounds(Box, Bounds), Inset),
+    [{Child, ChildBounds} || Child <- Children];
+child_layout(#tabs{tabs = Tabs, active_tab = ActiveTab0} = Element, Bounds) ->
+    {Visible, ChildBounds} = tab_content_bounds(Element, Bounds),
+    ActiveTab = resolve_active_tab(ActiveTab0, Tabs),
+    case {Visible, lists:keyfind(ActiveTab, #tab.id, Tabs)} of
+        {true, #tab{content = Content}} -> [{Child, ChildBounds} || Child <- Content];
+        _ -> []
     end;
-do_find_bounds(#tabs{id = ElementId, tabs = TabList, active_tab = ActiveTab0,
-                     x = X, y = Y, width = W, height = H}, Id, Bounds) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    Width = resolve_dimension(W, Bounds#bounds.width - X),
-    Height = resolve_dimension(H, Bounds#bounds.height - Y),
-    ElementBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-    case ElementId =:= Id of
-        true ->
-            {ok, ElementBounds};
-        false ->
-            ActiveTab = resolve_active_tab(ActiveTab0, TabList),
-            ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
-                #tab{content = Content} -> Content;
-                false -> []
-            end,
-            ContentBounds = #bounds{x = ActualX + 1, y = ActualY + 2,
-                                    width = max(1, Width - 2),
-                                    height = max(1, Height - 3)},
-            find_in_children(ActiveContent, Id, ContentBounds)
-    end;
-do_find_bounds(#scroll{id = ElementId, children = Children,
-                       x = X, y = Y, width = W, height = H}, Id, Bounds) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    Width = resolve_dimension(W, Bounds#bounds.width - X),
-    Height = resolve_dimension(H, Bounds#bounds.height - Y),
-    ElementBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-    case ElementId =:= Id of
-        true ->
-            {ok, ElementBounds};
-        false ->
-            ChildBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-            find_in_children(Children, Id, ChildBounds)
-    end;
-do_find_bounds(#modal{id = ElementId, children = Children, width = W, height = H},
-               Id, Bounds) ->
+child_layout(#scroll{children = Children, offset = Offset} = Scroll, Bounds) ->
+    %% nit_el_scroll renders into the supplied viewport. Remeasure after reserving
+    %% its scrollbar, then distribute flex heights in the full content layout.
+    ViewHeight = max(1, Bounds#bounds.height),
+    {Width, TotalHeight} = nit_el_scroll:content_size(Scroll, Bounds),
+    SafeOffset = min(max(0, Offset), max(0, TotalHeight - ViewHeight)),
+    LayoutBounds = #bounds{width = Width, height = max(ViewHeight, TotalHeight)},
+    Heights = nit_layout:calculate_vbox_heights(Children, LayoutBounds, 0),
+    StartBounds = LayoutBounds#bounds{x = Bounds#bounds.x, y = Bounds#bounds.y - SafeOffset},
+    %% Clipped children are rendered offscreen at full height, not resized to the
+    %% intersection. Preserve that allocation while translating screen positions.
+    stack_layout(Children, Heights, StartBounds, 0, vertical);
+child_layout(#modal{children = Children} = Modal, Bounds) ->
+    ChildBounds = inset_bounds(resolve_modal_bounds(Modal, Bounds), 1),
+    [{Child, ChildBounds} || Child <- Children];
+child_layout(_, _) ->
+    [].
+
+-spec tab_content_bounds(#tabs{}, #bounds{}) -> {boolean(), #bounds{}}.
+tab_content_bounds(Tabs, Bounds) ->
+    #bounds{x = X, y = Y, width = Width, height = Height} = resolve_tabs_bounds(Tabs, Bounds),
+    {Width > 2 andalso Height >= 3,
+     #bounds{x = X + 1, y = Y + 2, width = max(0, Width - 2), height = max(1, Height - 3)}}.
+
+resolve_container_bounds(Element, Bounds) ->
+    X = element(#box.x, Element),
+    Y = element(#box.y, Element),
+    #bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y,
+            width = resolve_dimension(element(#box.width, Element), Bounds#bounds.width - X),
+            height = resolve_dimension(element(#box.height, Element), Bounds#bounds.height - Y)}.
+
+resolve_tabs_bounds(#tabs{x = X, y = Y} = Tabs, Bounds) ->
+    Resolved = resolve_container_bounds(Tabs, Bounds),
+    Resolved#bounds{width = max(0, min(Resolved#bounds.width, Bounds#bounds.width - X)),
+                    height = max(0, min(Resolved#bounds.height, Bounds#bounds.height - Y))}.
+
+inset_bounds(#bounds{x = X, y = Y, width = W, height = H}, Inset) ->
+    #bounds{x = X + Inset, y = Y + Inset,
+            width = max(1, W - 2 * Inset), height = max(1, H - 2 * Inset)}.
+
+resolve_modal_bounds(#modal{width = W, height = H}, Bounds) ->
     Width = case W of
         auto -> min(60, max(1, Bounds#bounds.width - 4));
         fill -> min(60, max(1, Bounds#bounds.width - 4));
@@ -95,16 +97,23 @@ do_find_bounds(#modal{id = ElementId, children = Children, width = W, height = H
     end,
     ModalX = (Bounds#bounds.width - Width) div 2,
     ModalY = (Bounds#bounds.height - Height) div 2,
-    ElementBounds = #bounds{x = ModalX, y = ModalY, width = Width, height = Height},
-    case ElementId =:= Id of
-        true ->
-            {ok, ElementBounds};
-        false ->
-            ChildBounds = #bounds{x = ModalX + 1, y = ModalY + 1,
-                                  width = max(1, Width - 2),
-                                  height = max(1, Height - 2)},
-            find_in_children(Children, Id, ChildBounds)
-    end;
+    #bounds{x = ModalX, y = ModalY, width = Width, height = Height}.
+
+do_find_bounds(Element, Id, Bounds)
+  when is_record(Element, panel); is_record(Element, vbox); is_record(Element, hbox) ->
+    find_in_layout(child_layout(Element, Bounds), Id);
+do_find_bounds(#box{id = ElementId} = Element, Id, Bounds) ->
+    find_container_bounds(Element, ElementId, Id, Bounds, resolve_container_bounds(Element, Bounds));
+do_find_bounds(#tabs{id = ElementId} = Element, Id, Bounds) ->
+    find_container_bounds(Element, ElementId, Id, Bounds, resolve_tabs_bounds(Element, Bounds));
+do_find_bounds(#scroll{id = ElementId} = Element, Id, Bounds) ->
+    find_container_bounds(Element, ElementId, Id, Bounds, resolve_container_bounds(Element, Bounds));
+do_find_bounds(#modal{id = ElementId} = Element, Id, Bounds) ->
+    find_container_bounds(Element, ElementId, Id, Bounds, resolve_modal_bounds(Element, Bounds));
+do_find_bounds(#text_view{visible = false}, _Id, _Bounds) ->
+    not_found;
+do_find_bounds(#text_view{id = Id} = View, Id, Bounds) ->
+    {ok, nit_el_text_view:bounds(View, Bounds)};
 do_find_bounds(#table{id = ElementId} = Table, Id, Bounds) ->
     case ElementId =:= Id of
         true -> {ok, resolve_table_bounds(Table, Bounds)};
@@ -148,40 +157,35 @@ do_find_bounds(#input{id = ElementId, x = X, y = Y, width = W}, Id, Bounds) ->
 do_find_bounds(_, _, _) ->
     not_found.
 
-find_in_children([], _Id, _Bounds) ->
+find_container_bounds(_Element, Id, Id, _Bounds, ElementBounds) ->
+    {ok, ElementBounds};
+find_container_bounds(Element, _ElementId, Id, Bounds, _ElementBounds) ->
+    find_in_layout(child_layout(Element, Bounds), Id).
+
+find_in_layout([], _Id) ->
     not_found;
-find_in_children([Child | Rest], Id, Bounds) ->
+find_in_layout([{Child, Bounds} | Rest], Id) ->
     case do_find_bounds(Child, Id, Bounds) of
-        not_found -> find_in_children(Rest, Id, Bounds);
+        not_found -> find_in_layout(Rest, Id);
         Found -> Found
     end.
 
-find_in_vbox([], _Id, _Bounds, _Spacing, _CurrentY) ->
-    not_found;
-find_in_vbox([{Child, Height} | Rest], Id, Bounds, Spacing, CurrentY) ->
-    ChildBounds = Bounds#bounds{y = CurrentY, height = Height},
-    case do_find_bounds(Child, Id, ChildBounds) of
-        not_found ->
-            find_in_vbox(Rest, Id, Bounds, Spacing, CurrentY + Height + Spacing);
-        Found ->
-            Found
-    end.
-
-find_in_hbox([], _Id, _Bounds, _Spacing, _CurrentX) ->
-    not_found;
-find_in_hbox([{Child, ChildWidth} | Rest], Id, Bounds, Spacing, CurrentX) ->
-    ChildBounds = Bounds#bounds{x = CurrentX, width = ChildWidth},
-    case do_find_bounds(Child, Id, ChildBounds) of
-        not_found ->
-            find_in_hbox(Rest, Id, Bounds, Spacing,
-                         CurrentX + ChildWidth + Spacing);
-        Found ->
-            Found
-    end.
+stack_layout(Children, Sizes, Bounds, Spacing, Direction) ->
+    {Layout, _} = lists:mapfoldl(fun({Child, Size}, CurrentBounds) ->
+        {ChildBounds, NextBounds} = case Direction of
+            vertical ->
+                {CurrentBounds#bounds{height = Size},
+                 CurrentBounds#bounds{y = CurrentBounds#bounds.y + Size + Spacing}};
+            horizontal ->
+                {CurrentBounds#bounds{width = Size},
+                 CurrentBounds#bounds{x = CurrentBounds#bounds.x + Size + Spacing}}
+        end,
+        {{Child, ChildBounds}, NextBounds}
+    end, Bounds, lists:zip(Children, Sizes)),
+    Layout.
 
 resolve_table_bounds(#table{x = X, y = Y, width = W, height = H,
-                            rows = Rows, total_rows = TotalRows,
-                            border = Border, show_header = ShowHeader}, Bounds) ->
+                            rows = Rows, total_rows = TotalRows} = Table, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = resolve_dimension(W, Bounds#bounds.width - X),
@@ -189,7 +193,7 @@ resolve_table_bounds(#table{x = X, y = Y, width = W, height = H,
         undefined -> length(Rows);
         N -> N
     end,
-    Overhead = table_overhead(Border, ShowHeader),
+    Overhead = nit_el_table:overhead(Table),
     Height = case H of
         auto -> min(ActualTotalRows + Overhead, max(1, Bounds#bounds.height - Y));
         fill -> max(Overhead + 1, Bounds#bounds.height - Y);
@@ -229,14 +233,3 @@ resolve_active_tab(undefined, []) ->
     undefined;
 resolve_active_tab(ActiveTab, _Tabs) ->
     ActiveTab.
-
-table_overhead(Border, ShowHeader) ->
-    BorderOffset = case Border of
-        none -> 0;
-        _ -> 1
-    end,
-    HeaderOffset = case ShowHeader of
-        true -> 2;
-        false -> 0
-    end,
-    2 * BorderOffset + HeaderOffset.

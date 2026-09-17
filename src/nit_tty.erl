@@ -17,16 +17,28 @@
 
 %% API
 -export([start_link/0, stop/0, cleanup/0]).
--export([write/1, clear/0, get_size/0]).
+-export([write/1, write_control/1, clear/0, get_size/0]).
 -export([set_resize_target/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([format_status/1]).
+
+-ifdef(TEST).
+-export([state_for_test/2, cleanup_for_test/3, write_control_for_test/4]).
+-endif.
+
+%% Leave time for reader shutdown and mode restoration within the API timeout.
+-define(CLEANUP_DRAIN_TIMEOUT, 1000).
+-define(CLEANUP_CALL_TIMEOUT, 5000).
+-define(CONTROL_WRITE_TIMEOUT, 1000).
+-define(CONTROL_CALL_TIMEOUT, 5000).
 
 -record(state, {
     tty_state :: prim_tty:state() | undefined,
     reader_ref :: reference() | undefined,
-    resize_target :: pid() | undefined  %% Process to notify on resize
+    resize_target :: pid() | undefined,  %% Process to notify on resize
+    cleanup_result = ok :: ok | {error, cleanup_failed}
 }).
 
 %%====================================================================
@@ -41,17 +53,44 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Cleanup terminal state (disable mouse, show cursor, exit alt screen).
-%% This is called before shutdown to restore the terminal.
--spec cleanup() -> ok.
+%% @doc Stop input, drain terminal resets, and restore cooked terminal mode.
+%% Repeated calls return the first result without writing or restarting input.
+%% Failures are deliberately sanitized: no terminal state or output escapes.
+-spec cleanup() -> ok | {error, cleanup_failed}.
 cleanup() ->
-    gen_server:call(?MODULE, cleanup).
+    try gen_server:call(?MODULE, cleanup, ?CLEANUP_CALL_TIMEOUT) of
+        ok -> ok;
+        _ -> {error, cleanup_failed}
+    catch
+        _:_ -> {error, cleanup_failed}
+    end.
 
 %% @doc Write raw data to the terminal.
 -spec write(iodata()) -> ok.
 write(Data) ->
     gen_server:cast(?MODULE, {write, Data}),
     ok.
+
+%% @doc Synchronously submit one complete control frame to the active terminal.
+%% Unlike rendering writes, this never logs or falls back to stdio. A writer
+%% acknowledgement confirms terminal output, not acceptance of a control code.
+%% Failures are sanitized and never retried (a device may have written bytes).
+-spec write_control(binary()) -> ok | {error, unavailable | write_failed}.
+write_control(Data) when is_binary(Data) ->
+    Deadline = erlang:monotonic_time(millisecond) + ?CONTROL_CALL_TIMEOUT,
+    try gen_server:call(?MODULE, {write_control, Data, Deadline}, ?CONTROL_CALL_TIMEOUT) of
+        ok -> ok;
+        {error, unavailable} -> {error, unavailable};
+        _ -> {error, write_failed}
+    catch
+        exit:{noproc, _} -> {error, unavailable};
+        exit:{normal, _} -> {error, unavailable};
+        exit:{shutdown, _} -> {error, unavailable};
+        exit:{{shutdown, _}, _} -> {error, unavailable};
+        _:_ -> {error, write_failed}
+    end;
+write_control(_Data) ->
+    {error, write_failed}.
 
 %% @doc Clear the screen.
 -spec clear() -> ok.
@@ -103,17 +142,29 @@ init([]) ->
             {stop, Reason}
     end.
 
+handle_call(get_size, _From, State = #state{tty_state = undefined}) ->
+    {reply, {error, terminal_closed}, State};
 handle_call(get_size, _From, State = #state{tty_state = TtyState}) ->
     Result = prim_tty:window_size(TtyState),
     {reply, Result, State};
 
-handle_call(cleanup, _From, State = #state{tty_state = TtyState}) ->
-    cleanup_tty(TtyState),
-    {reply, ok, State};
+handle_call(cleanup, _From, State) ->
+    {Result, CleanState} = cleanup_state(State),
+    {reply, Result, CleanState};
+
+handle_call({write_control, Data, Deadline}, _From, State) when is_integer(Deadline) ->
+    %% Drop expired queued requests rather than writing after the caller timed out.
+    Timeout = min(?CONTROL_WRITE_TIMEOUT, Deadline - erlang:monotonic_time(millisecond)),
+    Result = control_write(State, Data,
+                           #{handles => fun prim_tty:handles/1,
+                             write => fun prim_tty:write/3}, Timeout),
+    {reply, Result, State};
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
+handle_cast(_Msg, State = #state{tty_state = undefined}) ->
+    {noreply, State};
 handle_cast({set_resize_target, Pid}, State) ->
     {noreply, State#state{resize_target = Pid}};
 handle_cast({write, Data}, State = #state{tty_state = TtyState}) ->
@@ -122,6 +173,11 @@ handle_cast({write, Data}, State = #state{tty_state = TtyState}) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+%% Reader data, EOF and resize signals may already be queued at cleanup time.
+%% In particular, never issue another read or reinitialize the cleared TTY.
+handle_info(_Info, State = #state{tty_state = undefined}) ->
+    {noreply, State};
 
 %% Handle SIGWINCH from prim_tty - terminal was resized.
 handle_info({ReaderRef, {signal, sigwinch}},
@@ -154,17 +210,36 @@ handle_info(sigwinch, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{tty_state = TtyState}) ->
+terminate(_Reason, State) ->
     %% Remove signal handler
     try gen_event:delete_handler(erl_signal_server, nit_sighandler, [])
     catch _:_ -> ok
     end,
-    cleanup_tty(TtyState),
+    _ = cleanup_state(State),
     ok.
+
+%% Control frames must not become payload-bearing crash or status reports.
+-spec format_status(gen_server:format_status()) -> gen_server:format_status().
+format_status(Status) ->
+    maps:map(fun
+        (state, State) -> State;
+        (_, Value) -> redact_control(Value)
+    end, Status).
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+redact_control({write_control, _Data, _Deadline}) ->
+    {write_control, redacted};
+redact_control(Tuple) when is_tuple(Tuple) ->
+    list_to_tuple([redact_control(Value) || Value <- tuple_to_list(Tuple)]);
+redact_control([Head | Tail]) ->
+    [redact_control(Head) | redact_control(Tail)];
+redact_control(Map) when is_map(Map) ->
+    maps:map(fun(_, Value) -> redact_control(Value) end, Map);
+redact_control(Value) ->
+    Value.
 
 init_tty() ->
     try
@@ -238,24 +313,24 @@ safe_prim_write(TtyState, Output) ->
     try prim_tty:write(TtyState, Output) of
         ok -> ok;
         {ok, _MonitorRef} -> ok;
-        Other ->
-            logger:warning("nit_tty: prim_tty:write returned ~p", [Other]),
+        _ ->
+            logger:warning("nit_tty: prim_tty:write failed"),
             safe_io_write(Output)
     catch
-        Class:Reason ->
-            logger:warning("nit_tty: prim_tty:write crashed ~p:~p", [Class, Reason]),
+        _:_ ->
+            logger:warning("nit_tty: prim_tty:write failed"),
             safe_io_write(Output)
     end.
 
 safe_io_write(Output) ->
     try io:put_chars(user, Output) of
         ok -> ok;
-        Other ->
-            logger:warning("nit_tty: io:put_chars returned ~p", [Other]),
+        _ ->
+            logger:warning("nit_tty: io:put_chars failed"),
             ok
     catch
-        Class:Reason ->
-            logger:warning("nit_tty: io:put_chars crashed ~p:~p", [Class, Reason]),
+        _:_ ->
+            logger:warning("nit_tty: io:put_chars failed"),
             ok
     end.
 
@@ -264,14 +339,119 @@ iolist_size_safe(Data) ->
     catch _:_ -> unknown
     end.
 
-cleanup_tty(undefined) ->
-    ok;
-cleanup_tty(TtyState) ->
-    %% Restore terminal state
-    do_write(TtyState, [
+control_write(#state{tty_state = undefined}, _Data, _Ops, _Timeout) ->
+    {error, unavailable};
+control_write(#state{tty_state = TtyState}, Data, Ops, Timeout)
+        when is_binary(Data), Timeout > 0 ->
+    try
+        #{handles := Handles, write := Write} = Ops,
+        #{write := WriterRef} = Handles(TtyState),
+        Owner = self(),
+        Request = make_ref(),
+        %% A per-write recipient prevents late acknowledgements from a timed-out
+        %% write from completing a later control write or cleanup drain.
+        ReplyTo = spawn(fun() -> control_ack(Owner, Request, WriterRef) end),
+        try
+            {ok, Monitor} = Write(TtyState, Data, ReplyTo),
+            try
+                receive
+                    {Request, ok} -> ok;
+                    {'DOWN', Monitor, process, _, _} -> {error, write_failed}
+                after Timeout ->
+                    {error, write_failed}
+                end
+            after
+                erlang:demonitor(Monitor, [flush])
+            end
+        after
+            exit(ReplyTo, kill),
+            receive {Request, ok} -> ok after 0 -> ok end
+        end
+    catch
+        _:_ -> {error, write_failed}
+    end;
+control_write(_State, _Data, _Ops, _Timeout) ->
+    {error, write_failed}.
+
+control_ack(Owner, Request, WriterRef) ->
+    Monitor = erlang:monitor(process, Owner),
+    receive
+        {WriterRef, ok} -> Owner ! {Request, ok};
+        {'DOWN', Monitor, process, Owner, _} -> ok
+    end.
+
+cleanup_state(State) ->
+    cleanup_state(State, #{reader_stop => fun prim_tty:reader_stop/1,
+                           handles => fun prim_tty:handles/1,
+                           write => fun prim_tty:write/3,
+                           reinit => fun prim_tty:reinit/2},
+                  ?CLEANUP_DRAIN_TIMEOUT).
+
+cleanup_state(State = #state{tty_state = undefined, cleanup_result = Result},
+              _Ops, _Timeout) ->
+    {Result, State};
+cleanup_state(State = #state{tty_state = TtyState}, Ops, Timeout) ->
+    Result = cleanup_tty(TtyState, Ops, Timeout),
+    {Result, State#state{tty_state = undefined, reader_ref = undefined,
+                         resize_target = undefined, cleanup_result = Result}}.
+
+cleanup_tty(TtyState, Ops = #{reader_stop := Stop, reinit := Reinit}, Timeout) ->
+    {Stopped, StopResult} = try Stop(TtyState) of
+        NewTtyState -> {NewTtyState, ok}
+    catch
+        _:_ -> {TtyState, {error, cleanup_failed}}
+    end,
+    %% Keep this in the owner process: its earlier writes precede the reset.
+    %% Do not fall back to asynchronous write/2 or group-leader output here.
+    DrainResult = cleanup_attempt(fun() -> drain_reset(Stopped, Ops, Timeout) end),
+    %% Always release raw mode, even if the writer died or failed to acknowledge.
+    ModeResult = cleanup_attempt(fun() ->
+        _ = Reinit(Stopped, #{input => disabled, output => cooked}),
+        ok
+    end),
+    case {StopResult, DrainResult, ModeResult} of
+        {ok, ok, ok} -> ok;
+        _ -> {error, cleanup_failed}
+    end.
+
+cleanup_attempt(Fun) ->
+    try Fun() of
+        ok -> ok;
+        _ -> {error, cleanup_failed}
+    catch
+        _:_ -> {error, cleanup_failed}
+    end.
+
+drain_reset(TtyState, #{handles := Handles, write := Write}, Timeout) ->
+    Output = unicode:characters_to_binary([
         nit_terminal:reset(),
         nit_terminal:mouse_mode_off(),
         nit_terminal:keypad_transmit_mode_off(),
         nit_terminal:cursor_show(),
         nit_terminal:alternate_screen_off()
-    ]).
+    ]),
+    #{write := WriterRef} = Handles(TtyState),
+    {ok, Monitor} = Write(TtyState, Output, self()),
+    try
+        receive
+            {WriterRef, ok} -> ok;
+            {'DOWN', Monitor, process, _, _} -> {error, cleanup_failed}
+        after Timeout ->
+            {error, cleanup_failed}
+        end
+    after
+        erlang:demonitor(Monitor, [flush])
+    end.
+
+-ifdef(TEST).
+%% Exercise the real cleanup and callbacks with fake TTY operations, without
+%% starting a terminal or duplicating the private state record in tests.
+state_for_test(TtyState, ReaderRef) ->
+    #state{tty_state = TtyState, reader_ref = ReaderRef}.
+
+cleanup_for_test(State, Ops, Timeout) ->
+    cleanup_state(State, Ops, Timeout).
+
+write_control_for_test(State, Data, Ops, Timeout) ->
+    control_write(State, Data, Ops, Timeout).
+-endif.

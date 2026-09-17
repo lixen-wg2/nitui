@@ -87,6 +87,32 @@ All elements share a common base (id, position, size, style, visibility).
 | `#progress{}` | Progress bar |
 | `#separator{}` | Horizontal rule |
 
+### Clickable table columns (opt-in)
+
+`#table.clickable_columns = []` is a list of `#table_col.id` values. For example,
+set `clickable_columns = [name]` to make data cells in the `name` column clickable.
+Unknown IDs are ignored; the default empty list preserves existing row behavior.
+
+- A cell click selects its row and focuses the table, then calls `handle_event/2`
+  with **only** `{table_cell_click, TableId, RowIdx, ColumnId, RowData}`. There is no
+  preceding `table_select` or `table_activate`, even with `activate_on_click` or
+  `activate_on_reclick` enabled. Normal handler responses (including push/modal)
+  are supported.
+- `RowIdx` is the absolute **1-based** row index, including the clamped scroll
+  offset. `RowData` is the complete row, fetched through `row_provider` in virtual
+  mode. `nit_hit:find_at/4` returns `{table_cell, TableId, RowIdx, ColumnId}`.
+- The rendered column width, including alignment padding, is clickable. Column
+  separators, trailing table padding, other columns and non-data areas keep
+  their old behavior. Cell hits are limited to rendered rows and visible bounds.
+- Headers retain `{table_header, TableId, ColumnId}` hits and
+  `{table_header_click, TableId, ColumnId}` events, including native sorting.
+  Arrow keys and Enter retain native row selection/activation behavior.
+- With `controlled = true`, the next `view/1` still owns selection, scroll and
+  sort. Store `RowIdx` in application state to retain the clicked selection;
+  uncontrolled tables preserve the native selection across rebuilds.
+
+This option does not change cell styles or the existing table palette.
+
 ### Sizing and layout notes
 
 - `width` / `height` accept `auto` (fit content), `fill` (consume remaining

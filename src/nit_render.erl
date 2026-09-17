@@ -11,6 +11,7 @@
 
 -export([render/2, render_dimmed/3]).
 -export([render_two_level/4, render_two_level/5]).
+-export([render_text_view/5]).
 
 %%====================================================================
 %% API
@@ -39,12 +40,62 @@ render_dimmed(Element, Bounds, FocusedId) ->
 %% Container gets a highlighted border, child gets element focus.
 -spec render_two_level(tuple(), #bounds{}, term(), term()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild) ->
-    render_two_level_impl(Element, Bounds, FocusedContainer, FocusedChild, #{}).
+    render_two_level(Element, Bounds, FocusedContainer, FocusedChild, #{}).
 
 %% @doc Render with two-level focus and additional options (e.g., cursor_visible).
 -spec render_two_level(tuple(), #bounds{}, term(), term(), map()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild, Opts) ->
-    render_two_level_impl(Element, Bounds, FocusedContainer, FocusedChild, Opts).
+    Child = case nit_focus:text_view_target(Element, FocusedContainer, FocusedChild) of
+        #text_view{id = Id} -> Id;
+        _ -> FocusedChild
+    end,
+    render_two_level_impl(Element, Bounds, FocusedContainer, Child, Opts).
+
+%% Redraw only an existing viewer's allocation. Ancestors provide layout and
+%% scroll clipping, but unrelated virtual tables must not fetch new rows.
+render_text_view(Tree, Bounds, Container, Child, Id) ->
+    Focused = case nit_focus:text_view_target(Tree, Container, Child) of
+        #text_view{id = Id} -> true;
+        _ -> false
+    end,
+    render_text_view_only(Tree, Bounds, Bounds, Id, #{focused => Focused}).
+
+render_text_view_only(Element, Bounds, Clip, Id, Opts) ->
+    case lists:any(fun(#text_view{id = VId}) -> VId =:= Id end,
+                   nit_focus:visible_text_views(Element)) of
+        false -> [];
+        true -> render_text_view_branch(Element, Bounds, Clip, Id, Opts)
+    end.
+
+render_text_view_branch(#text_view{} = View, Bounds, Clip, _Id, Opts) ->
+    Resolved = nit_el_text_view:bounds(View, Bounds),
+    case intersect_bounds(Resolved, Clip) of
+        #bounds{width = W, height = H} when W =< 0; H =< 0 -> [];
+        Resolved -> nit_el_text_view:render(View, Bounds, Opts);
+        Visible -> render_clipped_text_view(View, Resolved, Visible, Opts)
+    end;
+render_text_view_branch(#scroll{} = Scroll, Bounds, Clip, Id, Opts) ->
+    {Width, _Height} = nit_el_scroll:content_size(Scroll, Bounds),
+    ChildClip = intersect_bounds(Clip, Bounds#bounds{width = Width}),
+    [render_text_view_only(E, B, ChildClip, Id, Opts)
+     || {E, B} <- nit_bounds:child_layout(Scroll, Bounds)];
+render_text_view_branch(Element, Bounds, Clip, Id, Opts) ->
+    [render_text_view_only(E, B, Clip, Id, Opts)
+     || {E, B} <- nit_bounds:child_layout(Element, Bounds)].
+
+%% Match the scroll renderer's cell-based clipping, but only paint this
+%% viewer's intersection, never blank sibling allocations in the viewport.
+render_clipped_text_view(View, #bounds{x = X, y = Y, width = W, height = H},
+                         #bounds{x = CX, y = CY, width = CW, height = CH}, Opts) ->
+    LocalView = View#text_view{x = 0, y = 0, width = W, height = H},
+    Screen = nit_screen:from_ansi(nit_el_text_view:render(LocalView,
+                                  #bounds{width = W, height = H}, Opts), W, H),
+    [[begin
+        {Char, Style} = nit_screen:get_cell(Screen, Col - X, Row - Y),
+        [nit_ansi:move_to(Row, Col), nit_ansi:reset_style(),
+         nit_ansi:style_to_ansi(Style), unicode:characters_to_binary([Char])]
+      end || Col <- lists:seq(CX, CX + CW - 1)] || Row <- lists:seq(CY, CY + CH - 1)]
+        ++ [nit_ansi:reset_style()].
 
 %%====================================================================
 %% Internal - Two-Level Focus Rendering
@@ -53,6 +104,10 @@ render_two_level(Element, Bounds, FocusedContainer, FocusedChild, Opts) ->
 %% Opts: optional map with cursor_visible, etc.
 %%====================================================================
 
+%% All UI records share the visible field in ELEMENT_BASE.
+render_two_level_impl(Element, _Bounds, _Container, _Child, _Opts)
+  when element(#box.visible, Element) =:= false ->
+    [];
 render_two_level_impl(#panel{children = Children}, Bounds, Container, Child, Opts) ->
     render_children_two_level(Children, Bounds, Container, Child, Opts);
 render_two_level_impl(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds, Container, Child, Opts) ->
@@ -76,26 +131,32 @@ render_two_level_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ElemOutput], CurrentX + ElemWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
-render_two_level_impl(#box{border = none, children = Children,
-                           x = X, y = Y}, Bounds, Container, Child, Opts) ->
-    ChildBounds = Bounds#bounds{
-        x = Bounds#bounds.x + X,
-        y = Bounds#bounds.y + Y
-    },
+render_two_level_impl(#box{border = none, children = Children} = Box,
+                     Bounds, Container, Child, Opts) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
     render_children_two_level(Children, ChildBounds, Container, Child, Opts);
 render_two_level_impl(#box{id = Id, children = Children, border = Border, title = Title,
-                           style = Style, x = X, y = Y, width = W, height = H}, Bounds, Container, Child, Opts) ->
+                           style = Style, x = X, y = Y, width = W, height = H,
+                           focus_within = FocusWithin, focused_border = FocusedBorder,
+                           focused_style = FocusedStyle}, Bounds, Container, Child, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
     Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
     ChildBounds = #bounds{x = ActualX + 1, y = ActualY + 1,
                           width = max(0, Width - 2), height = max(0, Height - 2)},
-    {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(Border),
-    %% Container focus: highlight border if this box is the focused container
-    IsContainerFocused = Id =:= Container,
+    %% Focus-within is visual only: it does not make this box a Tab stop.
+    IsContainerFocused = focus_matches(Id, Container) orelse
+        (FocusWithin andalso lists:any(fun(Elem) ->
+            visible_focus(Elem, ChildBounds, ChildBounds, Container, Child)
+        end, Children)),
+    DisplayBorder = case IsContainerFocused andalso FocusedBorder =/= undefined of
+        true -> FocusedBorder;
+        false -> Border
+    end,
+    {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(DisplayBorder),
     BorderStyle = case IsContainerFocused of
-        true -> maps:merge(Style, #{bold => true, fg => yellow});
+        true -> maps:merge(Style, FocusedStyle);
         false -> Style
     end,
     [
@@ -112,36 +173,135 @@ render_two_level_impl(#box{id = Id, children = Children, border = Border, title 
     ];
 render_two_level_impl(#button{id = Id} = Button, Bounds, _Container, Child, Opts) ->
     HoveredId = maps:get(hovered_id, Opts, undefined),
-    render_button(Button, Bounds, Id =:= Child, Id =:= HoveredId);
+    render_button(Button, Bounds, focus_matches(Id, Child), focus_matches(Id, HoveredId));
 render_two_level_impl(#input{id = Id} = Input, Bounds, _Container, Child, Opts) ->
     CursorVisible = maps:get(cursor_visible, Opts, true),
-    render_input(Input, Bounds, Id =:= Child, CursorVisible);
-render_two_level_impl(#table{id = Id} = Table, Bounds, _Container, Child, _Opts) ->
+    render_input(Input, Bounds, focus_matches(Id, Child), CursorVisible);
+render_two_level_impl(#table{id = Id} = Table, Bounds, Container, Child, Opts) ->
     %% Use nit_el_table:render which supports row_provider for virtual scrolling
-    nit_el_table:render(Table, Bounds, #{focused => Id =:= Child});
-render_two_level_impl(#tabs{id = Id} = Tabs, Bounds, Container, Child, Opts) ->
-    IsContainerFocused = Id =:= Container,
-    render_tabs_two_level(Tabs, Bounds, IsContainerFocused, Child, Opts);
-render_two_level_impl(#tree{id = Id} = Tree, Bounds, Container, _Child, _Opts) ->
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    nit_el_table:render(Table, Bounds, Opts#{focused => Focused});
+render_two_level_impl(#text_view{id = Id} = View, Bounds, Container, Child, Opts) ->
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    nit_el_text_view:render(View, Bounds, Opts#{focused => Focused});
+render_two_level_impl(#tabs{} = Tabs, Bounds, Container, Child, Opts) ->
+    render_tabs_two_level(Tabs, Bounds, Container, Child, Opts);
+render_two_level_impl(#tree{id = Id} = Tree, Bounds, Container, Child, Opts) ->
     %% Tree is a container - pass focus info to element renderer
-    IsContainerFocused = Id =:= Container,
-    render_with_opts(Tree, Bounds, #{focused => IsContainerFocused});
+    Focused = focus_matches(Id, Container) orelse focus_matches(Id, Child),
+    render_with_opts(Tree, Bounds, Opts#{focused => Focused});
 render_two_level_impl(#modal{} = Modal, Bounds, _Container, Child, Opts) ->
     render_modal(Modal, Bounds, Child, Opts);
+render_two_level_impl(#scroll{} = Scroll, Bounds, Container, Child, Opts) ->
+    %% The viewport owns clipping/layout; its child renderer retains focus IDs
+    %% rather than applying a single focused flag to the whole subtree.
+    RenderChild = fun(Element, ChildBounds, _ChildOpts) ->
+        render_two_level_impl(Element, ChildBounds, Container, Child, Opts)
+    end,
+    nit_el_scroll:render(Scroll, Bounds, Opts#{render_child => RenderChild});
 render_two_level_impl(Element, Bounds, _Container, _Child, _Opts) ->
     render(Element, Bounds).
 
 render_children_two_level(Children, Bounds, Container, Child, Opts) ->
     [render_two_level_impl(C, Bounds, Container, Child, Opts) || C <- Children].
 
+focus_matches(undefined, _FocusedId) -> false;
+focus_matches(Id, FocusedId) -> Id =:= FocusedId.
+
+%% Search only the rendered subtree, including visible ancestors and the active
+%% tab. Keep this separate from navigation so focus visuals add no Tab stops.
+visible_focus(_Element, _Bounds, _Clip, undefined, undefined) -> false;
+visible_focus(Element, _Bounds, _Clip, _Container, _Child)
+  when element(#box.visible, Element) =:= false -> false;
+visible_focus(Element, Bounds, Clip, Container, Child)
+  when is_tuple(Element), tuple_size(Element) >= #box.on_unmount ->
+    Region = focus_region(Element, Bounds),
+    case intersect_bounds(Region, Clip) of
+        #bounds{width = W, height = H} when W =< 0; H =< 0 -> false;
+        _ ->
+            Id = element(#box.id, Element),
+            focus_matches(Id, Container) orelse focus_matches(Id, Child) orelse
+                visible_focus_children(Element, Bounds, Clip, Container, Child)
+    end;
+visible_focus(_, _, _, _, _) -> false.
+
+focus_region(#scroll{}, Bounds) -> Bounds;
+focus_region(#text_view{} = View, Bounds) -> nit_el_text_view:bounds(View, Bounds);
+focus_region(Element, Bounds) ->
+    X = element(#box.x, Element),
+    Y = element(#box.y, Element),
+    Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y,
+        width = nit_ansi:resolve_size(element(#box.width, Element), Bounds#bounds.width - X),
+        height = nit_ansi:resolve_size(element(#box.height, Element), Bounds#bounds.height - Y)}.
+
+visible_focus_children(#box{border = none} = Box, Bounds, Clip, Container, Child) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
+    visible_focus_children_at(Box, ChildBounds, Clip, Container, Child);
+visible_focus_children(#box{} = Box, Bounds, Clip, Container, Child) ->
+    Region = focus_region(Box, Bounds),
+    ChildBounds = Region#bounds{x = Region#bounds.x + 1, y = Region#bounds.y + 1,
+        width = max(0, Region#bounds.width - 2), height = max(0, Region#bounds.height - 2)},
+    visible_focus_children_at(Box, ChildBounds, Clip, Container, Child);
+visible_focus_children(#tabs{x = X, y = Y, width = W, height = H} = Tabs,
+                       Bounds, Clip, Container, Child) ->
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
+    ChildBounds = #bounds{x = Bounds#bounds.x + X + 1, y = Bounds#bounds.y + Y + 2,
+        width = max(0, Width - 2), height = max(1, Height - 3)},
+    Width > 2 andalso Height >= 3 andalso
+        visible_focus_children_at(Tabs, ChildBounds, Clip, Container, Child);
+visible_focus_children(#vbox{children = Children, spacing = Spacing, x = X, y = Y},
+                       Bounds, Clip, Container, Child) ->
+    Heights = nit_layout:calculate_vbox_heights(Children, Bounds, Spacing, Y),
+    Start = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+    visible_focus_stack(Children, Heights, Start, Spacing, vertical, Clip, Container, Child);
+visible_focus_children(#hbox{children = Children, spacing = Spacing, x = X, y = Y},
+                       Bounds, Clip, Container, Child) ->
+    Widths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
+    Start = Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y},
+    visible_focus_stack(Children, Widths, Start, Spacing, horizontal, Clip, Container, Child);
+visible_focus_children(#scroll{children = Children, offset = Offset} = Scroll,
+                       Bounds, Clip, Container, Child) ->
+    ViewHeight = max(1, Bounds#bounds.height),
+    {Width, TotalHeight} = nit_el_scroll:content_size(Scroll, Bounds),
+    SafeOffset = min(max(0, Offset), max(0, TotalHeight - ViewHeight)),
+    LayoutBounds = #bounds{width = Width, height = max(ViewHeight, TotalHeight)},
+    Heights = nit_layout:calculate_vbox_heights(Children, LayoutBounds, 0),
+    Start = LayoutBounds#bounds{x = Bounds#bounds.x, y = Bounds#bounds.y - SafeOffset},
+    visible_focus_stack(Children, Heights, Start, 0, vertical,
+                        intersect_bounds(Bounds, Clip), Container, Child);
+visible_focus_children(Element, Bounds, Clip, Container, Child) ->
+    visible_focus_children_at(Element, Bounds, Clip, Container, Child).
+
+visible_focus_children_at(Element, Bounds, Clip, Container, Child) ->
+    lists:any(fun(Elem) -> visible_focus(Elem, Bounds, Clip, Container, Child) end,
+              nit_element:children(Element)).
+
+visible_focus_stack([], [], _Bounds, _Spacing, _Axis, _Clip, _Container, _Child) -> false;
+visible_focus_stack([Elem | Rest], [Size | Sizes], Bounds, Spacing, Axis, Clip, Container, Child) ->
+    {ChildBounds, NextBounds} = case Axis of
+        vertical -> {Bounds#bounds{height = Size}, Bounds#bounds{y = Bounds#bounds.y + Size + Spacing}};
+        horizontal -> {Bounds#bounds{width = Size}, Bounds#bounds{x = Bounds#bounds.x + Size + Spacing}}
+    end,
+    visible_focus(Elem, ChildBounds, Clip, Container, Child) orelse
+        visible_focus_stack(Rest, Sizes, NextBounds, Spacing, Axis, Clip, Container, Child).
+
+intersect_bounds(A, B) ->
+    X = max(A#bounds.x, B#bounds.x),
+    Y = max(A#bounds.y, B#bounds.y),
+    #bounds{x = X, y = Y,
+        width = max(0, min(A#bounds.x + A#bounds.width, B#bounds.x + B#bounds.width) - X),
+        height = max(0, min(A#bounds.y + A#bounds.height, B#bounds.y + B#bounds.height) - Y)}.
+
 %% Tabs with two-level focus
-render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
+render_tabs_two_level(#tabs{id = Id, tabs = TabList, active_tab = ActiveTab0,
                             style = Style, x = X, y = Y, width = W, height = H},
-                      Bounds, IsContainerFocused, FocusedChild, Opts) ->
+                      Bounds, Container, FocusedChild, Opts) ->
+    IsContainerFocused = focus_matches(Id, Container),
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
-    Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
     %% Default active tab to first if undefined
     ActiveTab = case ActiveTab0 of
         undefined -> case TabList of [#tab{id = First}|_] -> First; [] -> undefined end;
@@ -152,25 +312,33 @@ render_tabs_two_level(#tabs{tabs = TabList, active_tab = ActiveTab0,
         IsContainerFocused -> maps:merge(Style, #{fg => yellow, bold => true});
         true -> Style
     end,
-    Border = nit_ansi:render_box_border(ActualX, ActualY, Width, Height, BorderStyle, undefined, single),
+    Border = render_tabs_border(ActualX, ActualY, Width, Height, BorderStyle),
     %% Tab headers with focus indicator (inside the top border)
-    TabHeaders = render_tab_headers_two_level(TabList, ActiveTab, FocusedChild,
-                                               ActualX + 1, ActualY, Style, IsContainerFocused),
+    TabHeaders = case Width > 1 andalso Height > 0 of
+        true -> render_tab_headers_two_level(TabList, ActiveTab, FocusedChild,
+                    ActualX + 1, ActualY, Style, IsContainerFocused,
+                    ActualX + Width);
+        false -> []
+    end,
     %% Active tab content (inside the border, below tab bar which is on row 1)
     ContentBounds = #bounds{x = ActualX + 1, y = ActualY + 2,
-                            width = Width - 2, height = max(1, Height - 3)},
+                            width = max(0, Width - 2), height = max(1, Height - 3)},
     ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
         #tab{content = Content} -> Content;
         false -> []
     end,
-    ContentOutput = [render_two_level_impl(C, ContentBounds, undefined, undefined, Opts) || C <- ActiveContent],
+    %% Heights 1/2 are header-only bars: never render children outside them.
+    ContentOutput = case Width > 2 andalso Height >= 3 of
+        true -> [render_two_level_impl(C, ContentBounds, Container, FocusedChild, Opts) || C <- ActiveContent];
+        false -> []
+    end,
     [Border, TabHeaders, ContentOutput].
 
-render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsContainerFocused) ->
+render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsContainerFocused, RightEdge) ->
     {Headers, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurX}) ->
             IsActive = Id =:= ActiveTab,
-            IsFocused = Id =:= FocusedChild andalso IsContainerFocused,
+            IsFocused = focus_matches(Id, FocusedChild) andalso IsContainerFocused,
             TabStyle = if
                 IsFocused ->
                     %% Focused tab (arrow navigated to it)
@@ -184,20 +352,35 @@ render_tab_headers_two_level(Tabs, ActiveTab, FocusedChild, X, Y, Style, IsConta
             end,
             LabelBin = iolist_to_binary([<<" ">>, Label, <<" ">>]),
             LabelLen = byte_size(LabelBin),
-            Header = [
-                nit_ansi:move_to(Y, CurX),
-                nit_ansi:style_to_ansi(TabStyle),
-                LabelBin,
-                nit_ansi:reset_style()
-            ],
+            Header = render_tab_header(LabelBin, CurX, Y, TabStyle, RightEdge),
             {[Acc, Header], CurX + LabelLen + 1}
         end, {[], X}, Tabs),
     Headers.
+
+%% Clamp exhausted/invalid bounds without changing the normal tab layout.
+tabs_size(Size, Available) ->
+    max(0, min(nit_ansi:resolve_size(Size, Available), Available)).
+
+render_tabs_border(X, Y, Width, Height, Style) when Width >= 2, Height >= 3 ->
+    nit_ansi:render_box_border(X, Y, Width, Height, Style, undefined, single);
+render_tabs_border(_X, _Y, _Width, _Height, _Style) ->
+    [].
+
+render_tab_header(Label, X, Y, Style, RightEdge) ->
+    VisibleLabel = nit_ansi:truncate_content(Label, RightEdge - X),
+    case VisibleLabel of
+        <<>> -> [];
+        _ -> [nit_ansi:move_to(Y, X), nit_ansi:style_to_ansi(Style),
+              VisibleLabel, nit_ansi:reset_style()]
+    end.
 
 %%====================================================================
 %% Internal - Styled Rendering (with base style modifier for dimming)
 %%====================================================================
 
+render_focused_styled(Element, _Bounds, _FocusedId, _BaseStyle)
+  when element(#box.visible, Element) =:= false ->
+    [];
 render_focused_styled(#panel{children = Children}, Bounds, FocusedId, BaseStyle) ->
     render_children_styled(Children, Bounds, FocusedId, BaseStyle);
 render_focused_styled(#vbox{children = Children, spacing = Spacing, x = X, y = Y}, Bounds, FocusedId, BaseStyle) ->
@@ -221,12 +404,9 @@ render_focused_styled(#hbox{children = Children, spacing = Spacing, x = X, y = Y
             {[Acc, ChildOutput], CurrentX + ChildWidth + Spacing}
         end, {[], StartBounds#bounds.x}, lists:zip(Children, ChildWidths)),
     Output;
-render_focused_styled(#box{border = none, children = Children,
-                           x = X, y = Y}, Bounds, FocusedId, BaseStyle) ->
-    ChildBounds = Bounds#bounds{
-        x = Bounds#bounds.x + X,
-        y = Bounds#bounds.y + Y
-    },
+render_focused_styled(#box{border = none, children = Children} = Box,
+                     Bounds, FocusedId, BaseStyle) ->
+    ChildBounds = borderless_child_bounds(Box, Bounds),
     render_children_styled(Children, ChildBounds, FocusedId, BaseStyle);
 render_focused_styled(#box{border = Border, title = Title, children = Children,
                     style = Style, x = X, y = Y, width = W, height = H}, Bounds, FocusedId, BaseStyle) ->
@@ -253,40 +433,39 @@ render_focused_styled(#box{border = Border, title = Title, children = Children,
 render_focused_styled(#text{} = Text, Bounds, _FocusedId, BaseStyle) ->
     nit_el_text:render(Text, Bounds, #{base_style => BaseStyle});
 render_focused_styled(#button{id = Id} = Button, Bounds, FocusedId, BaseStyle) ->
-    render_button_styled(Button, Bounds, Id =:= FocusedId, BaseStyle);
+    render_button_styled(Button, Bounds, focus_matches(Id, FocusedId), BaseStyle);
 render_focused_styled(#input{id = Id} = Input, Bounds, FocusedId, BaseStyle) ->
     render_input_styled(Input, Bounds, Id =:= FocusedId, BaseStyle);
 render_focused_styled(#tabs{} = Tabs, Bounds, FocusedId, BaseStyle) ->
     render_tabs_styled(Tabs, Bounds, FocusedId, BaseStyle);
 render_focused_styled(#table{} = Table, Bounds, _FocusedId, BaseStyle) ->
     render_table_styled(Table, Bounds, BaseStyle);
-render_focused_styled(_Element, _Bounds, _FocusedId, _BaseStyle) ->
-    [].
+render_focused_styled(#scroll{} = Scroll, Bounds, FocusedId, BaseStyle) ->
+    %% Keep the focused ID through direct and clipped child rendering.
+    RenderChild = fun(Element, ChildBounds, _ChildOpts) ->
+        render_focused_styled(Element, ChildBounds, FocusedId, BaseStyle)
+    end,
+    render_with_opts(Scroll, Bounds, #{base_style => BaseStyle, render_child => RenderChild});
+render_focused_styled(Element, Bounds, FocusedId, BaseStyle) ->
+    Focused = is_tuple(Element) andalso tuple_size(Element) >= #box.on_unmount andalso
+        focus_matches(element(#box.id, Element), FocusedId),
+    render_with_opts(Element, Bounds, #{base_style => BaseStyle, focused => Focused}).
 
 render_children_styled(Children, Bounds, FocusedId, BaseStyle) ->
     [render_focused_styled(Child, Bounds, FocusedId, BaseStyle) || Child <- Children].
 
-render_button_styled(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, Focused, BaseStyle) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    LabelBin = iolist_to_binary([Label]),
-    LabelLen = string:length(unicode:characters_to_list(LabelBin)),
-    Width = case W of
-        auto -> LabelLen + button_padding_width();
-        fill -> Bounds#bounds.width - X;
-        _ -> W
-    end,
-    FocusStyle = button_state_style(Style, Focused, false),
-    MergedStyle = maps:merge(FocusStyle, BaseStyle),
-    Padding = max(0, Width - LabelLen),
-    LeftPad = Padding div 2,
-    RightPad = Padding - LeftPad,
-    [
-        nit_ansi:move_to(ActualY, ActualX),
-        nit_ansi:style_to_ansi(MergedStyle),
-        lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
-        nit_ansi:reset_style()
-    ].
+borderless_child_bounds(#box{x = X, y = Y} = Box, Bounds) ->
+    case nit_focus:visible_text_views(Box) of
+        [] -> Bounds#bounds{x = Bounds#bounds.x + X, y = Bounds#bounds.y + Y};
+        _ ->
+            %% Viewer layout must agree with hit testing and resolved input
+            %% bounds. Leave legacy borderless layouts without viewers alone.
+            [{_, ChildBounds} | _] = nit_bounds:child_layout(Box, Bounds),
+            ChildBounds
+    end.
+
+render_button_styled(Button, Bounds, Focused, BaseStyle) ->
+    nit_el_button:render(Button, Bounds, #{focused => Focused, base_style => BaseStyle}).
 
 render_input_styled(Input, Bounds, Focused, BaseStyle) ->
     nit_el_input:render(Input, Bounds, #{focused => Focused, base_style => BaseStyle}).
@@ -297,28 +476,35 @@ render_tabs_styled(#tabs{tabs = TabList, active_tab = ActiveTab0,
                    Bounds, _FocusedId, BaseStyle) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
-    Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
-    Height = case H of auto -> Bounds#bounds.height - Y; fill -> Bounds#bounds.height - Y; _ -> H end,
+    Width = tabs_size(W, Bounds#bounds.width - X),
+    Height = tabs_size(H, Bounds#bounds.height - Y),
     ActiveTab = case ActiveTab0 of
         undefined -> case TabList of [#tab{id = First}|_] -> First; [] -> undefined end;
         _ -> ActiveTab0
     end,
     MergedStyle = maps:merge(Style, BaseStyle),
     %% Draw border
-    Border = nit_ansi:render_box_border(ActualX, ActualY, Width, Height, MergedStyle, undefined, single),
+    Border = render_tabs_border(ActualX, ActualY, Width, Height, MergedStyle),
     %% Tab headers
-    TabHeaders = render_tab_headers_styled(TabList, ActiveTab, ActualX + 1, ActualY, MergedStyle),
+    TabHeaders = case Width > 1 andalso Height > 0 of
+        true -> render_tab_headers_styled(TabList, ActiveTab, ActualX + 1, ActualY,
+                    MergedStyle, ActualX + Width);
+        false -> []
+    end,
     %% Content
     ContentBounds = #bounds{x = ActualX + 1, y = ActualY + 2,
-                            width = Width - 2, height = max(1, Height - 3)},
+                            width = max(0, Width - 2), height = max(1, Height - 3)},
     ActiveContent = case lists:keyfind(ActiveTab, #tab.id, TabList) of
         #tab{content = Content} -> Content;
         false -> []
     end,
-    ContentOutput = render_children_styled(ActiveContent, ContentBounds, undefined, BaseStyle),
+    ContentOutput = case Width > 2 andalso Height >= 3 of
+        true -> render_children_styled(ActiveContent, ContentBounds, undefined, BaseStyle);
+        false -> []
+    end,
     [Border, TabHeaders, ContentOutput].
 
-render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style) ->
+render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style, RightEdge) ->
     {Headers, _} = lists:foldl(
         fun(#tab{id = Id, label = Label}, {Acc, CurX}) ->
             LabelBin = iolist_to_binary([Label]),
@@ -327,123 +513,22 @@ render_tab_headers_styled(Tabs, ActiveTab, X, Y, Style) ->
                 Id =:= ActiveTab -> maps:merge(Style, #{bg => cyan, fg => black});
                 true -> Style
             end,
-            Header = [
-                nit_ansi:move_to(Y, CurX),
-                nit_ansi:style_to_ansi(TabStyle),
-                <<" ">>, LabelBin, <<" ">>,
-                nit_ansi:reset_style()
-            ],
+            Header = render_tab_header(iolist_to_binary([<<" ">>, LabelBin, <<" ">>]),
+                                       CurX, Y, TabStyle, RightEdge),
             {[Acc, Header], CurX + LabelLen + 3}
         end, {[], X}, Tabs),
     Headers.
 
 %% Render table with base style (for dimmed background)
-render_table_styled(#table{columns = Columns, rows = Rows, selected_row = SelectedRow,
-                           scroll_offset = ScrollOffset, border = Border, show_header = ShowHeader,
-                           style = Style, x = X, y = Y, width = W, height = H,
-                           visible = Visible} = Table, Bounds, BaseStyle) ->
-    case Visible of
-        false -> [];
-        true ->
-            ActualX = Bounds#bounds.x + X,
-            ActualY = Bounds#bounds.y + Y,
-            Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
-            MergedStyle = maps:merge(Style, BaseStyle),
-            BorderOffset = case Border of none -> 0; _ -> 1 end,
-            HeaderOffset2 = case ShowHeader of true -> 2; false -> 0 end,
-            Overhead = 2 * BorderOffset + HeaderOffset2,
-            Height = case H of
-                auto -> min(length(Rows) + Overhead, Bounds#bounds.height - Y);
-                fill -> max(Overhead + 1, Bounds#bounds.height - Y);
-                _ -> H
-            end,
-            VisibleHeight = Height - 2 * BorderOffset - HeaderOffset2,
-            VisibleRows = lists:sublist(
-                lists:nthtail(min(ScrollOffset, max(0, length(Rows) - 1)), Rows),
-                max(0, VisibleHeight)),
-            HeaderValues = nit_el_table:header_values(Table),
-            ColWidths = calculate_column_widths(HeaderValues, Columns, VisibleRows,
-                                                Width - 2 * BorderOffset),
-            %% Header
-            HeaderRow = case ShowHeader of
-                true ->
-                    HeaderText = render_table_row_text(
-                        HeaderValues, ColWidths, Columns),
-                    HeaderY = ActualY + BorderOffset,
-                    SepY = ActualY + BorderOffset + 1,
-                    [
-                        nit_ansi:move_to(HeaderY, ActualX + BorderOffset),
-                        nit_ansi:style_to_ansi(maps:merge(MergedStyle, #{bold => true})),
-                        HeaderText,
-                        nit_ansi:reset_style(),
-                        nit_ansi:move_to(SepY, ActualX + BorderOffset),
-                        nit_ansi:style_to_ansi(MergedStyle),
-                        nit_ansi:repeat_bin(<<"─"/utf8>>, Width - 2 * BorderOffset),
-                        nit_ansi:reset_style()
-                    ];
-                false -> []
-            end,
-            DataRows = lists:map(
-                fun({RowIdx, RowData}) ->
-                    AbsRowIdx = ScrollOffset + RowIdx,
-                    IsSelected = AbsRowIdx =:= SelectedRow,
-                    RowStyle = if
-                        IsSelected -> maps:merge(MergedStyle, #{bg => cyan, fg => black});
-                        true -> MergedStyle
-                    end,
-                    RowText = render_table_row_text(RowData, ColWidths, Columns),
-                    RowY = ActualY + BorderOffset + HeaderOffset2 + RowIdx - 1,
-                    [
-                        nit_ansi:move_to(RowY, ActualX + BorderOffset),
-                        nit_ansi:style_to_ansi(RowStyle),
-                        RowText,
-                        nit_ansi:reset_style()
-                    ]
-                end,
-                lists:zip(lists:seq(1, length(VisibleRows)), VisibleRows)),
-            BorderOutput = case Border of
-                none -> [];
-                _ ->
-                    {TL, TR, BL, BR, HZ, VT} = nit_ansi:border_chars(Border),
-                    [
-                        nit_ansi:style_to_ansi(MergedStyle),
-                        nit_ansi:move_to(ActualY, ActualX),
-                        TL, nit_ansi:repeat_bin(HZ, Width - 2), TR,
-                        [[nit_ansi:move_to(ActualY + Row, ActualX),
-                          VT, lists:duplicate(Width - 2, $\s), VT]
-                         || Row <- lists:seq(1, Height - 2)],
-                        nit_ansi:move_to(ActualY + Height - 1, ActualX),
-                        BL, nit_ansi:repeat_bin(HZ, Width - 2), BR,
-                        nit_ansi:reset_style()
-                    ]
-            end,
-            [BorderOutput, HeaderRow, DataRows]
-    end.
+render_table_styled(#table{} = Table, Bounds, BaseStyle) ->
+    nit_el_table:render(Table, Bounds, #{base_style => BaseStyle}).
 
 %%====================================================================
 %% Internal - Button Rendering
 %%====================================================================
 
-render_button(#button{label = Label, style = Style, x = X, y = Y, width = W}, Bounds, Focused, Hovered) ->
-    ActualX = Bounds#bounds.x + X,
-    ActualY = Bounds#bounds.y + Y,
-    LabelBin = iolist_to_binary([Label]),
-    LabelLen = string:length(unicode:characters_to_list(LabelBin)),
-    Width = case W of
-        auto -> LabelLen + button_padding_width();
-        fill -> Bounds#bounds.width - X;
-        _ -> W
-    end,
-    FocusStyle = button_state_style(Style, Focused, Hovered),
-    Padding = max(0, Width - LabelLen),
-    LeftPad = Padding div 2,
-    RightPad = Padding - LeftPad,
-    [
-        nit_ansi:move_to(ActualY, ActualX),
-        nit_ansi:style_to_ansi(FocusStyle),
-        lists:duplicate(LeftPad, $\s), LabelBin, lists:duplicate(RightPad, $\s),
-        nit_ansi:reset_style()
-    ].
+render_button(Button, Bounds, Focused, Hovered) ->
+    nit_el_button:render(Button, Bounds, #{focused => Focused, hovered => Hovered}).
 
 %%====================================================================
 %% Internal - Input Rendering
@@ -497,126 +582,3 @@ render_modal(#modal{title = Title, children = Children, border = Border,
             ChildOutput = render_children_two_level(Children, ChildBounds, undefined, FocusedId, Opts),
             [ModalBox, ChildOutput]
     end.
-
-%%====================================================================
-%% Internal - Table Rendering
-%%====================================================================
-
-calculate_column_widths(Headers, Columns, Rows, AvailableWidth) ->
-    %% Calculate content widths in row-major order to avoid repeated nth scans.
-    WidthSpecs = width_specs(Columns, Headers),
-    ContentWidths0 = initial_content_widths(WidthSpecs),
-    ContentWidths = lists:foldl(
-        fun(Row, Widths) ->
-            update_content_widths(Widths, WidthSpecs, Row)
-        end,
-        ContentWidths0,
-        Rows),
-    NumCols = length(ContentWidths),
-    %% Distribute remaining space or truncate
-    TotalWidth = lists:sum(ContentWidths) + NumCols - 1,  %% +separators
-    if
-        TotalWidth =< AvailableWidth -> ContentWidths;
-        true ->
-            %% Proportionally shrink columns
-            Scale = AvailableWidth / max(1, TotalWidth),
-            [max(3, round(W * Scale)) || W <- ContentWidths]
-    end.
-
-width_specs(Columns, Headers) ->
-    width_specs(Columns, Headers, []).
-
-width_specs([], _Headers, Acc) ->
-    lists:reverse(Acc);
-width_specs([Col | RestCols], [Header | RestHeaders], Acc) ->
-    HeaderLen = string:length(to_string(Header)),
-    width_specs(RestCols, RestHeaders, [{Col#table_col.width, HeaderLen} | Acc]);
-width_specs([Col | RestCols], [], Acc) ->
-    width_specs(RestCols, [], [{Col#table_col.width, 0} | Acc]).
-
-initial_content_widths(WidthSpecs) ->
-    [case Width of
-         auto -> HeaderLen;
-         W -> W
-     end || {Width, HeaderLen} <- WidthSpecs].
-
-update_content_widths(Widths, WidthSpecs, Row) ->
-    lists:reverse(update_content_widths(Widths, WidthSpecs, Row, [])).
-
-update_content_widths([], _Specs, _Row, Acc) ->
-    Acc;
-update_content_widths([Width | RestWidths], [{auto, _} | RestSpecs], [Cell | RestCells], Acc) ->
-    CellWidth = string:length(to_string(Cell)),
-    update_content_widths(RestWidths, RestSpecs, RestCells, [max(Width, CellWidth) | Acc]);
-update_content_widths([Width | RestWidths], [{auto, _} | RestSpecs], [], Acc) ->
-    update_content_widths(RestWidths, RestSpecs, [], [Width | Acc]);
-update_content_widths([Width | RestWidths], [_Fixed | RestSpecs], [_Cell | RestCells], Acc) ->
-    update_content_widths(RestWidths, RestSpecs, RestCells, [Width | Acc]);
-update_content_widths([Width | RestWidths], [_Fixed | RestSpecs], [], Acc) ->
-    update_content_widths(RestWidths, RestSpecs, [], [Width | Acc]).
-
-render_table_row_text(RowData, ColWidths, Columns) ->
-    Cells = render_table_cells(RowData, ColWidths, Columns, []),
-    lists:join(<<" ">>, Cells).
-
-render_table_cells(_RowData, [], _Columns, Acc) ->
-    lists:reverse(Acc);
-render_table_cells([Data | RestData], [Width | RestWidths], [Col | RestCols], Acc) ->
-    Cell = format_cell(to_string(Data), Width, Col#table_col.align),
-    render_table_cells(RestData, RestWidths, RestCols, [Cell | Acc]);
-render_table_cells([], [Width | RestWidths], [Col | RestCols], Acc) ->
-    Cell = format_cell(to_string(<<>>), Width, Col#table_col.align),
-    render_table_cells([], RestWidths, RestCols, [Cell | Acc]);
-render_table_cells([Data | RestData], [Width | RestWidths], [], Acc) ->
-    Cell = format_cell(to_string(Data), Width, left),
-    render_table_cells(RestData, RestWidths, [], [Cell | Acc]);
-render_table_cells([], [Width | RestWidths], [], Acc) ->
-    Cell = format_cell(to_string(<<>>), Width, left),
-    render_table_cells([], RestWidths, [], [Cell | Acc]).
-
-format_cell(Text, Width, Align) ->
-    Len = string:length(Text),
-    if
-        Len >= Width -> string:slice(Text, 0, Width);
-        true ->
-            Padding = Width - Len,
-            case Align of
-                left -> [Text, lists:duplicate(Padding, $\s)];
-                right -> [lists:duplicate(Padding, $\s), Text];
-                center ->
-                    Left = Padding div 2,
-                    Right = Padding - Left,
-                    [lists:duplicate(Left, $\s), Text, lists:duplicate(Right, $\s)]
-            end
-    end.
-
-to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
-to_string(List) when is_list(List) -> List;
-to_string(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-to_string(Int) when is_integer(Int) -> integer_to_list(Int);
-to_string(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
-to_string(Other) -> io_lib:format("~p", [Other]).
-
-%%====================================================================
-%% Internal - Tabs Rendering
-%%====================================================================
-
-%%====================================================================
-%% Internal - Box Rendering
-%%====================================================================
-
-%% Render just the border of a box (used by box and tabs)
-
-
-button_padding_width() ->
-    4.
-
-button_state_style(Style, true, _Hovered) ->
-    maps:merge(Style, #{bold => true, underline => true});
-button_state_style(Style, false, true) ->
-    case maps:is_key(bg, Style) of
-        true -> maps:merge(Style, #{bold => true, underline => true});
-        false -> maps:merge(Style, #{bg => bright_black, bold => true})
-    end;
-button_state_style(Style, false, false) ->
-    Style.

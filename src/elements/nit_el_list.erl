@@ -22,7 +22,7 @@ render(#list{visible = false}, _Bounds, _Opts) ->
     [];
 render(#list{items = Items, selected = Selected, offset = Offset,
              item_style = ItemStyle, selected_style = SelectedStyle,
-             x = X, y = Y}, Bounds, _Opts) ->
+             x = X, y = Y}, Bounds, Opts) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     AvailableHeight = Bounds#bounds.height - Y,
@@ -32,8 +32,10 @@ render(#list{items = Items, selected = Selected, offset = Offset,
     VisibleItems = get_visible_items(Items, Offset, AvailableHeight),
     
     %% Render each visible item
+    BaseStyle = maps:get(base_style, Opts, #{}),
     render_items(VisibleItems, ActualX, ActualY, AvailableWidth, 
-                 Selected, Offset, ItemStyle, SelectedStyle, []).
+                 Selected, Offset, maps:merge(ItemStyle, BaseStyle),
+                 maps:merge(SelectedStyle, BaseStyle), []).
 
 -spec height(#list{}, #bounds{}) -> pos_integer() | {flex, non_neg_integer()}.
 height(#list{height = auto, items = Items}, Bounds) ->

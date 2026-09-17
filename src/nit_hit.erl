@@ -10,14 +10,27 @@
 
 %% Find interactive element at given screen coordinates
 -spec find_at(term(), integer(), integer(), #bounds{}) ->
-    {tab, term(), term()} | {button, term()} | {input, term()} |
-    {box, term()} | {tabs_container, term()} | {table, term()} |
+    {tab, term(), term()} | {button, term()} | {input, term()} | {text_view, term()} |
+    {box, term()} | {scroll, term()} | {tabs_container, term()} | {table, term()} |
     {table_header, term(), term()} | {table_row, term(), integer()} | {list, term()} |
+    {table_cell, term(), pos_integer(), term()} |
     {tree, term()} | {tree_node, term(), term()} | {tree_toggle, term(), term()} |
     {status_bar_item, binary() | string()} |
     {list_item, term(), integer()} | not_found.
 find_at(Tree, Col, Row, Bounds) ->
-    find_at_impl(Tree, Col, Row, Bounds).
+    case find_at_impl(Tree, Col, Row, Bounds) of
+        {text_view, Id} = Hit ->
+            %% Do not let a hidden ancestor or offscreen allocation claim hits.
+            Visible = lists:any(fun(#text_view{id = VId}) -> VId =:= Id end,
+                                nit_focus:visible_text_views(Tree)),
+            case Visible andalso Col > Bounds#bounds.x andalso
+                 Col =< Bounds#bounds.x + Bounds#bounds.width andalso
+                 Row > Bounds#bounds.y andalso Row =< Bounds#bounds.y + Bounds#bounds.height of
+                true -> Hit;
+                false -> not_found
+            end;
+        Hit -> Hit
+    end.
 
 find_at_impl(#panel{children = Children}, Col, Row, Bounds) ->
     find_in_children(Children, Col, Row, Bounds);
@@ -58,6 +71,10 @@ find_at_impl(#tabs{id = Id, tabs = TabList, active_tab = ActiveTab0, x = X, y = 
         true -> not_found
     end;
 
+find_at_impl(#button{enabled = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#button{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
 find_at_impl(#button{id = Id, x = X, y = Y, width = W, label = Label}, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
@@ -67,6 +84,14 @@ find_at_impl(#button{id = Id, x = X, y = Y, width = W, label = Label}, Col, Row,
         Row =:= ActualY + 1, Col >= ActualX + 1, Col =< ActualX + Width ->
             {button, Id};
         true -> not_found
+    end;
+
+find_at_impl(#text_view{visible = true, id = Id} = View, Col, Row, Bounds)
+        when Id =/= undefined ->
+    #bounds{x = X, y = Y, width = W, height = H} = nit_el_text_view:bounds(View, Bounds),
+    case Col > X andalso Col =< X + W andalso Row > Y andalso Row =< Y + H of
+        true -> {text_view, Id};
+        false -> not_found
     end;
 
 find_at_impl(#input{id = Id, x = X, y = Y, width = W}, Col, Row, Bounds) ->
@@ -115,10 +140,14 @@ find_at_impl(#hbox{children = Children, spacing = Spacing, x = X, y = Y}, Col, R
     ChildWidths = nit_layout:calculate_hbox_widths(Children, Bounds, Spacing, X),
     find_in_children_hbox(lists:zip(Children, ChildWidths), Col, Row, StartBounds, Spacing);
 
+find_at_impl(#table{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#table{}, Col, Row, #bounds{x = X, y = Y, width = W, height = H})
+  when Col =< X; Col > X + W; Row =< Y; Row > Y + H ->
+    not_found;
 find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Border,
-                    show_header = ShowHeader, scroll_offset = ScrollOffset,
-                    columns = Columns, rows = Rows, total_rows = TotalRows,
-                    row_provider = RowProvider} = Table, Col, Row, Bounds) ->
+                    show_header = ShowHeader,
+                    columns = Columns, rows = Rows, total_rows = TotalRows} = Table, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of auto -> Bounds#bounds.width - X; fill -> Bounds#bounds.width - X; _ -> W end,
@@ -126,40 +155,55 @@ find_at_impl(#table{id = Id, x = X, y = Y, width = W, height = H, border = Borde
         undefined -> length(Rows);
         N -> N
     end,
-    Overhead = table_overhead(Border, ShowHeader),
+    Overhead = nit_el_table:overhead(Table),
     Height = case H of
         auto -> min(ActualTotalRows + Overhead, Bounds#bounds.height - Y);
         fill -> max(Overhead + 1, Bounds#bounds.height - Y);
         _ -> H
     end,
     BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
+    HeaderOffset = nit_el_table:header_height(Table),
     VisibleHeight = max(0, Height - 2 * BorderOffset - HeaderOffset),
-    VisibleRows = visible_table_rows(RowProvider, Rows, ScrollOffset, VisibleHeight),
-    ColWidths = calculate_column_widths(nit_el_table:header_values(Table), Columns, VisibleRows,
-                                        Width - 2 * BorderOffset),
+    ScrollOffset = nit_el_table:clamp_scroll_offset(Table, VisibleHeight),
+    VisibleRows = nit_el_table:visible_rows(Table, VisibleHeight),
+    ColWidths = nit_el_table:column_widths(Table, VisibleRows, Width - 2 * BorderOffset),
+    SeparatorWidth = nit_el_table:column_separator_width(Table),
     HeaderRow = ActualY + BorderOffset + 1,
     %% Check if click is within table bounds
     if
         ShowHeader =:= true,
         Col >= ActualX + BorderOffset + 1, Col =< ActualX + Width - BorderOffset,
         Row =:= HeaderRow ->
-            case find_clicked_table_column(Columns, ColWidths, Col - ActualX - BorderOffset) of
+            case find_clicked_table_column(Columns, ColWidths, Col - ActualX - BorderOffset,
+                                           SeparatorWidth) of
                 {ok, ColumnId} -> {table_header, Id, ColumnId};
                 not_found -> {table, Id}
             end;
-        Col >= ActualX + BorderOffset, Col =< ActualX + Width - BorderOffset,
+        Col > ActualX + BorderOffset, Col =< ActualX + Width - BorderOffset,
         Row > ActualY + BorderOffset + HeaderOffset, Row =< ActualY + Height - BorderOffset ->
             %% Calculate which row was clicked
             ClickedRowIdx = Row - ActualY - BorderOffset - HeaderOffset + ScrollOffset,
             if
                 ClickedRowIdx >= 1, ClickedRowIdx =< ActualTotalRows ->
-                    {table_row, Id, ClickedRowIdx};
+                    %% Only visible, rendered cells opt in; separators and
+                    %% trailing padding retain normal row selection.
+                    case Table#table.clickable_columns =/= [] andalso Table#table.visible
+                         andalso ClickedRowIdx - ScrollOffset =< length(VisibleRows)
+                         andalso Col > ActualX + BorderOffset
+                         andalso Col > Bounds#bounds.x
+                         andalso Col =< Bounds#bounds.x + Bounds#bounds.width
+                         andalso Row > Bounds#bounds.y
+                         andalso Row =< Bounds#bounds.y + Bounds#bounds.height of
+                        true ->
+                            table_row_hit(Table, ClickedRowIdx, ColWidths,
+                                          Col - ActualX - BorderOffset, SeparatorWidth);
+                        false -> {table_row, Id, ClickedRowIdx}
+                    end;
                 true ->
                     {table, Id}
             end;
-        Col >= ActualX, Col =< ActualX + Width,
-        Row >= ActualY, Row =< ActualY + Height ->
+        Col > ActualX, Col =< ActualX + Width,
+        Row > ActualY, Row =< ActualY + Height ->
             {table, Id};
         true ->
             not_found
@@ -208,8 +252,11 @@ find_at_impl(#status_bar{} = StatusBar, Col, Row, Bounds) ->
         not_found -> not_found
     end;
 
-find_at_impl(#scroll{children = Children, x = X, y = Y, width = W, height = H,
-                     offset = Offset, show_scrollbar = ShowBar}, Col, Row, Bounds) ->
+find_at_impl(#scroll{visible = false}, _Col, _Row, _Bounds) ->
+    not_found;
+find_at_impl(#scroll{id = Id, children = Children, x = X, y = Y, width = W, height = H,
+                     offset = Offset, show_scrollbar = ShowBar,
+                     focusable = Focusable} = Scroll, Col, Row, Bounds) ->
     ActualX = Bounds#bounds.x + X,
     ActualY = Bounds#bounds.y + Y,
     Width = case W of
@@ -228,17 +275,24 @@ find_at_impl(#scroll{children = Children, x = X, y = Y, width = W, height = H,
             not_found;
         true ->
             ScrollBounds = #bounds{x = ActualX, y = ActualY, width = Width, height = Height},
-            TotalHeight = lists:sum([nit_element:height(Child, ScrollBounds) || Child <- Children]),
-            ContentWidth = case ShowBar andalso TotalHeight > Height of
-                true -> max(1, Width - 1);
-                false -> Width
-            end,
+            {ContentWidth, TotalHeight} = nit_el_scroll:content_size(Scroll, ScrollBounds),
             ClampedOffset = min(max(0, Offset), max(0, TotalHeight - Height)),
             ContentHeight = max(Height, TotalHeight),
             ContentBounds = #bounds{x = ActualX, y = ActualY - ClampedOffset,
                                     width = ContentWidth, height = ContentHeight},
             ChildHeights = nit_layout:calculate_vbox_heights(Children, ContentBounds, 0),
-            find_in_children_vbox(lists:zip(Children, ChildHeights), Col, Row, ContentBounds, 0)
+            %% The scrollbar covers this column, even if a child's fixed width
+            %% extends into it. Otherwise interactive children take precedence.
+            ChildHit = case ShowBar andalso TotalHeight > Height andalso
+                            Col =:= ActualX + Width of
+                true -> not_found;
+                false -> find_in_children_vbox(lists:zip(Children, ChildHeights),
+                                               Col, Row, ContentBounds, 0)
+            end,
+            case ChildHit of
+                not_found when Focusable, Id =/= undefined -> {scroll, Id};
+                Found -> Found
+            end
     end;
 
 find_at_impl(#modal{children = Children, width = W, height = H}, Col, Row, Bounds) ->
@@ -334,68 +388,36 @@ find_in_children_vbox([{Child, ChildHeight} | Rest], Col, Row, Bounds, Spacing) 
         Found -> Found
     end.
 
-table_overhead(Border, ShowHeader) ->
-    BorderOffset = case Border of none -> 0; _ -> 1 end,
-    HeaderOffset = case ShowHeader of true -> 2; false -> 0 end,
-    2 * BorderOffset + HeaderOffset.
-
-visible_table_rows(undefined, Rows, ScrollOffset, VisibleHeight) ->
-    lists:sublist(
-        lists:nthtail(min(ScrollOffset, max(0, length(Rows) - 1)), Rows),
-        max(0, VisibleHeight)
-    );
-visible_table_rows(Provider, _Rows, ScrollOffset, VisibleHeight) when is_function(Provider, 2) ->
-    Provider(ScrollOffset, VisibleHeight).
-
-calculate_column_widths(Headers, Columns, Rows, AvailableWidth) ->
-    NumCols = length(Columns),
-    ContentWidths = lists:map(
-        fun({Idx, {Col, Header}}) ->
-            HeaderLen = string:length(to_string(Header)),
-            MaxDataLen = lists:foldl(
-                fun(Row, Max) ->
-                    CellData = safe_nth(Idx, Row, <<>>),
-                    max(Max, string:length(to_string(CellData)))
-                end, 0, Rows),
-            case Col#table_col.width of
-                auto -> max(HeaderLen, MaxDataLen);
-                W -> W
-            end
-        end,
-        lists:zip(lists:seq(1, NumCols), lists:zip(Columns, Headers))),
-    TotalWidth = lists:sum(ContentWidths) + NumCols - 1,
-    if
-        TotalWidth =< AvailableWidth -> ContentWidths;
-        true ->
-            Scale = AvailableWidth / max(1, TotalWidth),
-            [max(3, round(W * Scale)) || W <- ContentWidths]
+table_row_hit(#table{id = Id, columns = Columns, clickable_columns = Clickable},
+              RowIdx, ColWidths, ClickCol, SeparatorWidth) ->
+    case find_clicked_table_column(Columns, ColWidths, ClickCol, SeparatorWidth, false) of
+        {ok, ColumnId} ->
+            case lists:member(ColumnId, Clickable) of
+                true -> {table_cell, Id, RowIdx, ColumnId};
+                false -> {table_row, Id, RowIdx}
+            end;
+        not_found -> {table_row, Id, RowIdx}
     end.
 
-find_clicked_table_column([], [], _ClickCol) ->
+%% Headers retain ownership of their following separator; data cells do not.
+find_clicked_table_column(Columns, Widths, ClickCol, SeparatorWidth) ->
+    find_clicked_table_column(Columns, Widths, ClickCol, SeparatorWidth, true).
+
+find_clicked_table_column([], [], _ClickCol, _SeparatorWidth, _IncludeSeparator) ->
     not_found;
-find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol) ->
+find_clicked_table_column([#table_col{id = Id}], [Width], ClickCol, _SeparatorWidth,
+                           _IncludeSeparator) ->
     if
         ClickCol >= 1, ClickCol =< Width -> {ok, Id};
         true -> not_found
     end;
-find_clicked_table_column([#table_col{id = Id} | Rest], [Width | RestWidths], ClickCol) ->
+find_clicked_table_column([#table_col{id = Id} | Rest], [Width | RestWidths], ClickCol,
+                           SeparatorWidth, IncludeSeparator) ->
+    HitWidth = case IncludeSeparator of true -> Width + SeparatorWidth; false -> Width end,
     if
-        ClickCol >= 1, ClickCol =< Width + 1 ->
+        ClickCol >= 1, ClickCol =< HitWidth ->
             {ok, Id};
         true ->
-            find_clicked_table_column(Rest, RestWidths, ClickCol - Width - 1)
+            find_clicked_table_column(Rest, RestWidths, ClickCol - Width - SeparatorWidth,
+                                      SeparatorWidth, IncludeSeparator)
     end.
-
-to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
-to_string(List) when is_list(List) -> List;
-to_string(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-to_string(Int) when is_integer(Int) -> integer_to_list(Int);
-to_string(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
-to_string(Other) -> io_lib:format("~p", [Other]).
-
-safe_nth(1, [Value | _], _Default) ->
-    Value;
-safe_nth(N, [_ | Rest], Default) when N > 1 ->
-    safe_nth(N - 1, Rest, Default);
-safe_nth(_, _, Default) ->
-    Default.

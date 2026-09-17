@@ -103,7 +103,8 @@ table_hit_border_test() ->
                   rows = [[<<"Row 1">>]]},
     Bounds = default_bounds(),
     %% Clicking on border area returns table (not table_row)
-    ?assertEqual({table, my_table}, nit_hit:find_at(Tree, 0, 0, Bounds)).
+    ?assertEqual({table, my_table}, nit_hit:find_at(Tree, 1, 1, Bounds)),
+    ?assertEqual(not_found, nit_hit:find_at(Tree, 0, 0, Bounds)).
 
 table_miss_test() ->
     Tree = #table{id = my_table, x = 5, y = 5, width = 20, height = 5,
@@ -206,6 +207,55 @@ scroll_hit_respects_offset_and_child_stacking_test() ->
     Bounds = #bounds{x = 0, y = 0, width = 20, height = 2},
     ?assertEqual({button, btn2}, nit_hit:find_at(Tree, 2, 1, Bounds)),
     ?assertEqual({button, btn3}, nit_hit:find_at(Tree, 2, 2, Bounds)).
+
+scroll_hit_wrapped_text_and_empty_space_test() ->
+    Bounds = #bounds{x = 3, y = 4, width = 10, height = 6},
+    Tree = #scroll{id = log_scroll, focusable = true, x = 2, y = 1,
+                   width = 5, height = 4, children = [
+        #text{content = <<"abcdefghij">>, wrap = true}
+    ]},
+    ?assertEqual({scroll, log_scroll}, nit_hit:find_at(Tree, 6, 7, Bounds)),
+    ?assertEqual({scroll, log_scroll}, nit_hit:find_at(Tree, 10, 9, Bounds)),
+    lists:foreach(fun({Col, Row}) ->
+        ?assertEqual(not_found, nit_hit:find_at(Tree, Col, Row, Bounds))
+    end, [{5, 6}, {11, 6}, {6, 5}, {6, 10}]).
+
+scroll_hit_requires_focusable_id_test() ->
+    Bounds = default_bounds(),
+    Tree = #scroll{id = log_scroll, focusable = true, height = 2,
+                   children = [#text{content = <<"Log">>}]},
+    ?assertEqual(not_found,
+                 nit_hit:find_at(Tree#scroll{focusable = false}, 1, 1, Bounds)),
+    ?assertEqual(not_found,
+                 nit_hit:find_at(Tree#scroll{id = undefined}, 1, 1, Bounds)),
+    ?assertEqual(not_found,
+                 nit_hit:find_at(Tree#scroll{visible = false}, 1, 1, Bounds)).
+
+scroll_hit_interactive_child_after_scrollbar_reflow_test() ->
+    Bounds = #bounds{width = 5, height = 2},
+    Tree = #scroll{id = log_scroll, focusable = true, height = 2, offset = 99,
+                   children = [
+        #text{content = <<"abcdefghijklmnopTAIL">>, wrap = true},
+        #button{id = tail_button, focusable = true, label = <<"Go">>}
+    ]},
+    %% Five text lines after reserving the bar, then a button. Clamp to offset 4.
+    ?assertEqual({scroll, log_scroll}, nit_hit:find_at(Tree, 1, 1, Bounds)),
+    ?assertEqual({button, tail_button}, nit_hit:find_at(Tree, 1, 2, Bounds)),
+    %% The button's auto width must not claim the scrollbar or spill outside.
+    ?assertEqual({scroll, log_scroll}, nit_hit:find_at(Tree, 5, 2, Bounds)),
+    ?assertEqual(not_found, nit_hit:find_at(Tree, 6, 2, Bounds)),
+    ?assertEqual(not_found, nit_hit:find_at(Tree, 1, 3, Bounds)),
+    ?assertEqual({button, tail_button},
+                 nit_hit:find_at(Tree#scroll{focusable = false}, 1, 2, Bounds)),
+    ?assertEqual(not_found,
+                 nit_hit:find_at(Tree#scroll{focusable = false}, 5, 2, Bounds)),
+    ?assertEqual(not_found,
+                 nit_hit:find_at(Tree#scroll{visible = false}, 1, 2, Bounds)).
+
+scroll_hit_fill_child_test() ->
+    Tree = #scroll{id = log_scroll, focusable = true,
+                   children = [#text{height = fill, content = <<"Log">>}]},
+    ?assertEqual({scroll, log_scroll}, nit_hit:find_at(Tree, 1, 1, default_bounds())).
 
 %%====================================================================
 %% Not found tests

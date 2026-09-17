@@ -51,6 +51,7 @@
 -export([split_at/2]).
 -export([call_handler/3]).
 -export([call_view/3]).
+-export([prepare_tree/2, prepare_tree/3]).
 -export([init_focus_state/2]).
 -export([cycle_focus/4]).
 
@@ -61,6 +62,7 @@
 
 %% Element navigation (unified per-element dispatch)
 -export([navigate_element/6, page_navigate_element/6]).
+-export([text_view_key/4]).
 -export([page_navigate_tab_content/8]).
 
 %%====================================================================
@@ -135,19 +137,11 @@ toggle_tree_node(Dir, TreeEl, Bounds) ->
 %% Height Resolvers
 %%====================================================================
 
-resolved_table_visible_height(Tree, TableId, #table{border = Border, show_header = ShowHeader},
+resolved_table_visible_height(Tree, TableId, #table{} = Table,
                               Bounds) ->
     case nit_bounds:find_element_bounds(Tree, TableId, Bounds) of
         {ok, #bounds{height = ResolvedHeight}} ->
-            BorderOffset = case Border of
-                none -> 0;
-                _ -> 1
-            end,
-            HeaderOffset = case ShowHeader of
-                true -> 2;
-                false -> 0
-            end,
-            max(1, ResolvedHeight - 2 * BorderOffset - HeaderOffset);
+            max(1, ResolvedHeight - nit_el_table:overhead(Table));
         not_found ->
             undefined
     end.
@@ -240,14 +234,9 @@ resolve_active_tab(Active, _) -> Active.
 %% Scroll Helpers
 %%====================================================================
 
-scroll_content_height(#scroll{children = Children}, Bounds) ->
-    %% Children may return {flex, Min}; resolve to Min before summing so a
-    %% fill-height child (e.g. #text{height = fill}) does not crash with
-    %% badarith.
-    lists:sum([height_value(nit_element:height(Child, Bounds)) || Child <- Children]).
-
-height_value({flex, Min}) -> Min;
-height_value(N) when is_integer(N) -> N.
+scroll_content_height(Scroll, Bounds) ->
+    {_ContentWidth, TotalHeight} = nit_el_scroll:content_size(Scroll, Bounds),
+    TotalHeight.
 
 find_scroll_at(Tree, Col, Row, Bounds) ->
     ScrollIds = lists:reverse(collect_scroll_ids(Tree)),
@@ -288,6 +277,8 @@ scroll_target_element(Tree, Id) ->
             {tree, Id};
         #scroll{} ->
             {scroll, Id};
+        #text_view{visible = true} ->
+            {text_view, Id};
         _ ->
             undefined
     end.
@@ -370,7 +361,17 @@ focus_container_for(Tree, ElementId) ->
     end.
 
 activation_target(Tree, Container, FocusedChild) ->
-    case nit_focus:find_element(Tree, FocusedChild) of
+    %% undefined means no child, not an anonymous layout element's default ID.
+    Child = case FocusedChild of
+        undefined -> undefined;
+        _ -> nit_focus:find_element(Tree, FocusedChild)
+    end,
+    case Child of
+        #button{enabled = true, visible = true, focusable = true} = Button ->
+            Button;
+        #button{} ->
+            %% A stale child ID must not activate a disabled/hidden or mouse-only button.
+            undefined;
         undefined ->
             case nit_focus:find_element(Tree, Container) of
                 #table{} = Table -> Table;
@@ -382,8 +383,7 @@ activation_target(Tree, Container, FocusedChild) ->
             Element
     end.
 
-default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height = H,
-                                    border = Border, show_header = ShowHeader}) ->
+default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height = H} = Table) ->
     NumRows = case TotalRows of
         undefined -> length(Rows);
         N -> N
@@ -394,15 +394,7 @@ default_table_visible_height(#table{rows = Rows, total_rows = TotalRows, height 
         fill ->
             max(1, NumRows);
         _ ->
-            BorderOffset = case Border of
-                none -> 0;
-                _ -> 1
-            end,
-            HeaderOffset = case ShowHeader of
-                true -> 2;
-                false -> 0
-            end,
-            max(1, H - 2 * BorderOffset - HeaderOffset)
+            max(1, H - nit_el_table:overhead(Table))
     end.
 
 split_at(Bin, Pos) ->
@@ -422,6 +414,11 @@ split_at(Bin, Pos) ->
     {ok, term(), term()} | unhandled.
 navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     case nit_focus:find_element(Tree, ElementId) of
+        #text_view{} ->
+            case text_view_key(Tree, ElementId, {key, Dir}, Bounds) of
+                {ok, NewTree} -> {ok, NewTree, US};
+                false -> unhandled
+            end;
         #table{} = Table when Dir =:= up; Dir =:= down ->
             NewTable = navigate_table(Dir, Table, Tree, Bounds),
             NewTree = nit_tree:update(Tree, ElementId, NewTable),
@@ -460,6 +457,12 @@ navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     {ok, term(), term()} | unhandled.
 page_navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
     case nit_focus:find_element(Tree, ElementId) of
+        #text_view{} ->
+            Key = case Dir of up -> page_up; down -> page_down end,
+            case text_view_key(Tree, ElementId, {key, Key}, Bounds) of
+                {ok, NewTree} -> {ok, NewTree, US};
+                false -> unhandled
+            end;
         #table{} = Table ->
             Lines = page_lines_table(Tree, Table#table.id, Table, Bounds),
             NewTable = navigate_table(Dir, Lines, Table, Tree, Bounds),
@@ -551,6 +554,15 @@ element_id(_) -> undefined.
 %%====================================================================
 %% Input Editing
 %%====================================================================
+
+%% Native viewer updates never invoke application callbacks or rebuild views.
+text_view_key(Tree, Id, Event, Bounds) when Id =/= undefined ->
+    case {nit_focus:find_element(Tree, Id), nit_bounds:find_element_bounds(Tree, Id, Bounds)} of
+        {#text_view{} = View, {ok, Resolved}} ->
+            {ok, nit_tree:update(Tree, Id, nit_el_text_view:key(View, Event, Resolved))};
+        _ -> false
+    end;
+text_view_key(_Tree, _Id, _Event, _Bounds) -> false.
 
 %% @doc Apply a character insertion at cursor position.
 %% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input.
@@ -824,6 +836,71 @@ init_focus_state(CallbackModule, InitArg) ->
     {UserState, Tree, ContainerIds, FocusedContainer, FocusedChild}.
 
 %%====================================================================
+%% Pure render preparation (after merge and active/fullscreen root selection)
+%%====================================================================
+
+-spec prepare_tree(term(), #bounds{}) -> term().
+prepare_tree(Tree, Bounds) ->
+    prepare_tree(Tree, Bounds, normal).
+
+-spec prepare_tree(term(), #bounds{}, normal | resize) -> term().
+prepare_tree(Tree, Bounds, Mode) when Mode =:= normal; Mode =:= resize ->
+    Revealed = map_tree_widgets(Tree, true, fun
+        (Widget, true, _WidgetBounds) -> nit_tree_nav:reveal_selection_request(Widget);
+        (#tree{selection_request = undefined} = Widget, false, _WidgetBounds) ->
+            Widget#tree{selection_request_applied = undefined};
+        (Widget, false, _WidgetBounds) -> Widget
+    end, Bounds),
+    %% Resolve every viewport against the same, fully expanded layout.
+    map_tree_widgets(Revealed, true, fun
+        (#tree{selection_request = Request, selection_request_applied = Request} = Widget,
+         true, _WidgetBounds) when Mode =:= normal ->
+            Widget;
+        (Widget, true, WidgetBounds) ->
+            Height = max(1, nit_tree_nav:resolved_height(Widget, WidgetBounds)),
+            nit_tree_nav:finish_selection_request(Widget, Height, Mode);
+        (Widget, false, _WidgetBounds) -> Widget
+    end, Bounds).
+
+%% Visit inactive descendants too, but only to reset cancelled requests.
+%% All UI records share ELEMENT_BASE's visible field.
+map_tree_widgets(Element, Active, Fun, Bounds) ->
+    Visible = case Element of
+        E when element(#box.visible, E) =:= false -> false;
+        _ -> Active
+    end,
+    map_tree_widget_children(Element, Visible, Fun, Bounds).
+
+map_tree_widget_children(#tree{} = Tree, Active, Fun, Bounds) -> Fun(Tree, Active, Bounds);
+map_tree_widget_children(#text_view{} = View, true, _Fun, Bounds) ->
+    %% Resizes/rebuilds retain source selection but clamp the visual viewport.
+    nit_el_text_view:scroll(View, down, 0, nit_el_text_view:bounds(View, Bounds));
+map_tree_widget_children(#box{} = E, A, F, B) ->
+    E#box{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#panel{} = E, A, F, B) ->
+    E#panel{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#vbox{} = E, A, F, B) ->
+    E#vbox{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#hbox{} = E, A, F, B) ->
+    E#hbox{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#scroll{} = E, A, F, B) ->
+    E#scroll{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#modal{} = E, A, F, B) ->
+    E#modal{children = map_tree_widget_layout(E, A, F, B)};
+map_tree_widget_children(#tabs{tabs = Tabs, active_tab = ActiveTab} = E, A, F, B) ->
+    ActiveId = resolve_active_tab(ActiveTab, [Id || #tab{id = Id} <- Tabs]),
+    {ContentVisible, ContentBounds} = nit_bounds:tab_content_bounds(E, B),
+    E#tabs{tabs = [Tab#tab{content = [
+        map_tree_widgets(X, A andalso ContentVisible andalso Id =:= ActiveId, F, ContentBounds)
+        || X <- C
+    ]} || #tab{id = Id, content = C} = Tab <- Tabs]};
+map_tree_widget_children(Element, _Active, _Fun, _Bounds) -> Element.
+
+map_tree_widget_layout(Element, Active, Fun, Bounds) ->
+    [map_tree_widgets(Child, Active, Fun, ChildBounds)
+     || {Child, ChildBounds} <- nit_bounds:child_layout(Element, Bounds)].
+
+%%====================================================================
 %% Internal
 %%====================================================================
 
@@ -863,6 +940,7 @@ call_handler(Cb, Event, US) ->
                 {list_select, _, _, _} -> Event;
                 {table_select, _, _, _} -> Event;
                 {table_activate, _, _, _} -> Event;
+                {table_cell_click, _, _, _, _} -> Event;
                 {table_header_click, _, _} -> Event;
                 {tab_change, _, _} -> Event;
                 {tree_activate, _, _} -> Event;
