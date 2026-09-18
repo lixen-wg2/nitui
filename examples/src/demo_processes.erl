@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Processes Page - live list of Erlang processes
-%%% @end
+%%% Demo Processes Page - live list of Erlang processes
 %%%-------------------------------------------------------------------
 -module(demo_processes).
+-moduledoc "Demo processes page: sortable table of live Erlang processes.".
 
 -behaviour(nit_callback).
 

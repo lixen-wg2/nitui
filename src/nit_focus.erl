@@ -1,12 +1,15 @@
 %%%-------------------------------------------------------------------
-%%% @doc Focus management for NitUI.
-%%%
-%%% Two-level focus model:
-%%% - Tab/Shift+Tab: Navigate between containers (box, tabs)
-%%% - Arrow keys: Navigate between elements within focused container
-%%% @end
+%%% Focus management for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_focus).
+-moduledoc """
+Focus management for NitUI.
+
+Two-level focus model:
+
+- Tab/Shift+Tab: navigate between containers (box, tabs)
+- Arrow keys: navigate between elements within the focused container
+""".
 
 -include("nit_elements.hrl").
 
@@ -18,12 +21,12 @@
 %% API
 %%====================================================================
 
-%% @doc Collect all focusable container IDs (for Tab navigation).
+-doc "Collect all focusable container IDs (for Tab navigation).".
 -spec collect_containers(tuple()) -> [term()].
 collect_containers(Element) ->
     filter_text_views(lists:flatten(do_collect_containers(Element)), Element).
 
-%% @doc Collect focusable children within a container (for arrow navigation).
+-doc "Collect focusable children within a container (for arrow navigation).".
 -spec collect_children(tuple(), term()) -> [term()].
 collect_children(Tree, ContainerId) ->
     case find_element(Tree, ContainerId) of
@@ -65,8 +68,11 @@ text_view_target(Tree, Container, Child) ->
             end
     end.
 
-%% @doc Get the next focusable element ID after CurrentId.
-%% If CurrentId is undefined or not found, returns the first focusable.
+-doc """
+Get the next focusable element ID after `CurrentId`.
+
+If `CurrentId` is `undefined` or not found, returns the first focusable ID.
+""".
 -spec next_focus([term()], term()) -> term() | undefined.
 next_focus([], _CurrentId) ->
     undefined;
@@ -78,7 +84,7 @@ next_focus(FocusableIds, CurrentId) ->
         NextId -> NextId
     end.
 
-%% @doc Get the previous focusable element ID before CurrentId.
+-doc "Get the previous focusable element ID before `CurrentId`.".
 -spec prev_focus([term()], term()) -> term() | undefined.
 prev_focus([], _CurrentId) ->
     undefined;
@@ -90,13 +96,16 @@ prev_focus(FocusableIds, CurrentId) ->
         PrevId -> PrevId
     end.
 
-%% @doc Find an element by ID in the tree.
+-doc "Find an element by ID in the tree.".
 -spec find_element(tuple(), term()) -> tuple() | undefined.
 find_element(Element, Id) ->
     do_find(Element, Id).
 
-%% @doc Find the nearest focusable container that owns the given element.
-%% Returns undefined when the element is itself the outermost container.
+-doc """
+Find the nearest focusable container that owns the given element.
+
+Returns `undefined` when the element is itself the outermost container.
+""".
 -spec find_container(tuple(), term()) -> term() | undefined.
 find_container(Element, Id) ->
     case do_find_container(Element, Id, undefined) of

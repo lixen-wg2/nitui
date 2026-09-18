@@ -1,19 +1,23 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI UI Server - Core TUI event loop and rendering.
-%%%
-%%% This module handles all the TUI machinery:
-%%% - Input event handling (keyboard, mouse)
-%%% - Focus management
-%%% - Rendering
-%%% - Modal overlays
-%%%
-%%% Users implement a callback module with:
-%%% - init() -> {ok, State} | {ok, State, Tree}
-%%% - view(State) -> Tree
-%%% - handle_event(Event, State) -> {noreply, State} | {stop, Reason, State}
-%%% @end
+%%% NitUI UI Server
 %%%-------------------------------------------------------------------
 -module(nit_server).
+-moduledoc """
+NitUI UI Server. Core TUI event loop and rendering.
+
+This module handles all the TUI machinery:
+
+- Input event handling (keyboard, mouse)
+- Focus management
+- Rendering
+- Modal overlays
+
+Users implement a `nit_callback` module with:
+
+- `init(Arg) -> {ok, State} | {ok, State, Tree}`
+- `view(State) -> Tree`
+- `handle_event(Event, State) -> {noreply, State} | {stop, Reason, State}`
+""".
 
 -behaviour(gen_server).
 
@@ -91,43 +95,61 @@
 %% API
 %%====================================================================
 
+-doc "Start an unnamed UI server, calling `Module:init(#{})`.".
 -spec start_link(module()) -> {ok, pid()} | {error, term()}.
 start_link(CallbackModule) ->
     start_link(CallbackModule, #{}).
 
+-doc "Start an unnamed UI server, calling `Module:init(InitArg)`.".
 -spec start_link(module(), term()) -> {ok, pid()} | {error, term()}.
 start_link(CallbackModule, InitArg) ->
     gen_server:start_link(?MODULE, {undefined, CallbackModule, InitArg}, []).
 
+-doc "Start a registered UI server. `Name` is `{local, Atom}` or `{global, Term}`.".
 -spec start_link({local, atom()} | {global, term()}, module(), term()) -> {ok, pid()} | {error, term()}.
 start_link(Name, CallbackModule, InitArg) ->
     gen_server:start_link(Name, ?MODULE, {Name, CallbackModule, InitArg}, []).
 
+-doc "Stop the UI server. Terminal cleanup runs from `terminate/2`.".
 -spec stop(pid() | atom()) -> ok.
 stop(Server) ->
     gen_server:stop(Server).
 
-%% Update user state and re-render
+-doc """
+Apply `UpdateFun` to the user state inside the UI process and re-render.
+
+Asynchronous. Widget state is merged from the previous tree, so selections
+and scroll offsets survive the rebuild.
+""".
 -spec update(pid() | atom(), fun((term()) -> term())) -> ok.
 update(Server, UpdateFun) ->
     gen_server:cast(Server, {update, UpdateFun}).
 
-%% Get current user state
+-doc "Return the current user state.".
 -spec get_state(pid() | atom()) -> term().
 get_state(Server) ->
     gen_server:call(Server, get_state).
 
-%% Show a modal overlay
+-doc """
+Show an element record as a modal overlay, replacing any active modal.
+
+Asynchronous.
+""".
 -spec set_modal(pid() | atom(), term()) -> ok.
 set_modal(Server, Modal) ->
     gen_server:cast(Server, {set_modal, Modal}).
 
-%% Close current modal
+-doc "Close the active modal. Asynchronous; a no-op when none is active.".
 -spec close_modal(pid() | atom()) -> ok.
 close_modal(Server) ->
     gen_server:cast(Server, close_modal).
 
-%% Send an event to be handled as if it came from user input
+-doc """
+Deliver an event as if it came from user input.
+
+The callback receives it wrapped as `{event, Event}`, and may return any
+`t:nit_callback:handle_event_result/0`.
+""".
 -spec send_event(pid() | atom(), term()) -> ok.
 send_event(Server, Event) ->
     gen_server:cast(Server, {send_event, Event}).
@@ -1888,8 +1910,8 @@ prepare_render_state(State = #nit_state{tree = Tree, bounds = Bounds,
 prepare_render_state(State = #nit_state{modal = Modal, bounds = Bounds}, Mode) ->
     State#nit_state{modal = nit_engine:prepare_tree(Modal, Bounds, Mode)}.
 
-%% @doc Render with differential updates - returns updated state with new screen buffer.
-%% Also handles lifecycle callbacks (on_mount/on_unmount).
+%% Render with differential updates - returns updated state with new screen
+%% buffer. Also handles lifecycle callbacks (on_mount/on_unmount).
 render_diff(State) ->
     render_prepared_diff(prepare_render_state(State, normal)).
 
@@ -2109,7 +2131,7 @@ get_children(_) -> [].
 %% Internal: Cursor blink timer management
 %%====================================================================
 
-%% @doc Update cursor blink timer based on whether the focused element is an input.
+%% Update cursor blink timer based on whether the focused element is an input.
 %% Starts timer when focusing an input, stops when leaving input.
 -spec update_cursor_timer(#nit_state{}) -> #nit_state{}.
 update_cursor_timer(State = #nit_state{cursor_timer = OldTimer}) ->

@@ -1,19 +1,22 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Spacer Element
-%%%
-%%% A flexible spacer that fills remaining vertical space in a vbox.
-%%% Use this to push elements (like status_bar) to the bottom of the screen.
-%%%
-%%% Example:
-%%%   #vbox{children = [
-%%%       #header{...},
-%%%       #text{...},
-%%%       #spacer{},           %% Fills remaining space
-%%%       #status_bar{...}     %% Now at the bottom
-%%%   ]}
-%%% @end
+%%% NitUI Spacer Element
 %%%-------------------------------------------------------------------
 -module(nit_el_spacer).
+-moduledoc """
+NitUI Spacer Element.
+
+A flexible spacer that fills remaining vertical space in a vbox.
+Use this to push elements (like `status_bar`) to the bottom of the screen.
+
+```erlang
+#vbox{children = [
+    #header{},
+    #text{content = <<"body">>},
+    #spacer{},        % fills remaining space
+    #status_bar{}     % now at the bottom
+]}
+```
+""".
 
 -behaviour(nit_element).
 

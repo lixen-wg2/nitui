@@ -1,12 +1,14 @@
 %% -*- coding: utf-8 -*-
 %%%-------------------------------------------------------------------
-%%% @doc Demo Virtual Scrolling - Large dataset with 10,000+ rows
-%%% 
-%%% Demonstrates virtual scrolling where rows are fetched on demand
-%%% instead of storing all rows in memory.
-%%% @end
+%%% Demo Virtual Scrolling - large dataset with 10,000+ rows
 %%%-------------------------------------------------------------------
 -module(demo_virtual).
+-moduledoc """
+Demo virtual scrolling page: a table over a 10,000+ row dataset.
+
+Rows are fetched on demand through a `row_provider` instead of being
+kept in memory.
+""".
 
 -behaviour(nit_callback).
 

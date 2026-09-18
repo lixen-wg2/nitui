@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Shortcut parsing and declarative shortcut dispatch helpers.
-%%% @end
+%%% Shortcut helpers for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_shortcuts).
+-moduledoc "Shortcut parsing and declarative shortcut dispatch helpers.".
 
 -export([parse/1, matches/2, handle/3]).
 

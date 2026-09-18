@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Navigation Utilities
-%%%
-%%% Common functions for navigating scrollable elements (tables, lists).
-%%% Used by nit_server and nit_engine.
-%%% @end
+%%% NitUI Navigation Utilities
 %%%-------------------------------------------------------------------
 -module(nit_nav).
+-moduledoc """
+NitUI Navigation Utilities.
+
+Common functions for navigating scrollable elements (tables, lists).
+Used by `nit_server` and `nit_engine`.
+""".
 
 -include("nit_elements.hrl").
 

@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Table Element
-%%%
-%%% Renders a table with columns, rows, selection, and scrolling.
-%%% @end
+%%% NitUI Table Element
 %%%-------------------------------------------------------------------
 -module(nit_el_table).
+-moduledoc """
+NitUI Table Element.
+
+Renders a table with columns, rows, selection, and scrolling.
+""".
 
 -behaviour(nit_element).
 

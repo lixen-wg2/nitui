@@ -1,36 +1,48 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Element Behaviour
-%%%
-%%% Defines the callbacks that element modules must implement.
-%%% Each element type (text, box, button, etc.) has its own module
-%%% that implements this behaviour.
-%%%
-%%% This allows users to create custom elements by implementing
-%%% this behaviour in their own modules.
-%%% @end
+%%% NitUI Element Behaviour
 %%%-------------------------------------------------------------------
 -module(nit_element).
+-moduledoc """
+NitUI Element Behaviour.
+
+Defines the callbacks that element modules must implement.
+Each element type (text, box, button, etc.) has its own module
+that implements this behaviour.
+
+This allows users to create custom elements by implementing
+this behaviour in their own modules.
+""".
 
 -include("nit_elements.hrl").
 
-%% Callback definitions
+-doc """
+Render the element to ANSI escape sequences.
+
+`Opts` may contain:
+
+- `focused => boolean()` - whether this element has focus
+- `focused_child => term()` - ID of the focused child (for containers)
+- `base_style => map()` - style to merge with the element style (e.g. for dimming)
+""".
 -callback render(Element :: tuple(), Bounds :: #bounds{}, Opts :: map()) -> iolist().
-%% Render the element to ANSI escape sequences.
-%% Opts may contain:
-%%   - focused => boolean() - whether this element has focus
-%%   - focused_child => term() - ID of focused child (for containers)
-%%   - base_style => map() - style to merge with element style (e.g., for dimming)
 
+-doc """
+Calculate the height of the element given available bounds.
+
+Returns a `t:pos_integer/0` for fixed heights, or `{flex, MinHeight}` for
+flexible elements.
+""".
 -callback height(Element :: tuple(), Bounds :: #bounds{}) -> pos_integer() | {flex, non_neg_integer()}.
-%% Calculate the height of the element given available bounds.
-%% Returns pos_integer() for fixed heights, or {flex, MinHeight} for flexible elements.
 
+-doc "Calculate the width of the element given available bounds.".
 -callback width(Element :: tuple(), Bounds :: #bounds{}) -> pos_integer().
-%% Calculate the width of the element given available bounds.
 
+-doc """
+Return the fixed width of an element, or `auto` if it should fill remaining space.
+
+Used by hbox layout to distribute space among children.
+""".
 -callback fixed_width(Element :: tuple()) -> auto | pos_integer().
-%% Returns the fixed width of an element, or 'auto' if it should fill remaining space.
-%% Used by hbox layout to distribute space among children.
 
 %% API for dispatching to element modules
 -export([render/3, height/2, width/2, fixed_width/1]).
@@ -40,7 +52,7 @@
 %% API
 %%====================================================================
 
-%% @doc Get the module for an element type
+-doc "Get the module for an element type.".
 -spec element_module(atom()) -> module().
 element_module(text) -> nit_el_text;
 element_module(text_view) -> nit_el_text_view;
@@ -68,7 +80,7 @@ element_module(scroll) -> nit_el_scroll;
 element_module(list) -> nit_el_list;
 element_module(_Unknown) -> undefined.
 
-%% @doc Render an element by dispatching to its module
+-doc "Render an element by dispatching to its module.".
 -spec render(tuple(), #bounds{}, map()) -> iolist().
 render(Element, Bounds, Opts) when is_tuple(Element) ->
     Type = element(1, Element),
@@ -78,8 +90,12 @@ render(Element, Bounds, Opts) when is_tuple(Element) ->
     end;
 render(_, _, _) -> [].
 
-%% @doc Get element height by dispatching to its module.
-%% Returns pos_integer() for fixed heights, or {flex, MinHeight} for flexible elements.
+-doc """
+Get element height by dispatching to its module.
+
+Returns a `t:pos_integer/0` for fixed heights, or `{flex, MinHeight}` for
+flexible elements.
+""".
 -spec height(tuple(), #bounds{}) -> pos_integer() | {flex, non_neg_integer()}.
 height(Element, Bounds) when is_tuple(Element) ->
     Type = element(1, Element),
@@ -89,7 +105,7 @@ height(Element, Bounds) when is_tuple(Element) ->
     end;
 height(_, _) -> 1.
 
-%% @doc Get element width by dispatching to its module
+-doc "Get element width by dispatching to its module.".
 -spec width(tuple(), #bounds{}) -> pos_integer().
 width(Element, Bounds) when is_tuple(Element) ->
     Type = element(1, Element),
@@ -99,7 +115,7 @@ width(Element, Bounds) when is_tuple(Element) ->
     end;
 width(_, _) -> 1.
 
-%% @doc Get fixed width by dispatching to its module
+-doc "Get fixed width by dispatching to its module.".
 -spec fixed_width(tuple()) -> auto | pos_integer().
 fixed_width(Element) when is_tuple(Element) ->
     Type = element(1, Element),
@@ -110,9 +126,12 @@ fixed_width(Element) when is_tuple(Element) ->
 fixed_width(_) -> auto.
 
 
-%% @doc Get the direct children of a container element.
-%% Returns the children list, or [] for leaf elements.
-%% For tabs, returns only the active tab's content.
+-doc """
+Get the direct children of a container element.
+
+Returns the children list, or `[]` for leaf elements. For tabs, returns only
+the active tab's content.
+""".
 -spec children(term()) -> [term()].
 children(#box{children = C}) -> C;
 children(#vbox{children = C}) -> C;

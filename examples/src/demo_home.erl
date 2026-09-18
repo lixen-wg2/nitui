@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Home Page - Observer-style dashboard with dummy data
-%%% @end
+%%% Demo Home Page - Observer-style dashboard
 %%%-------------------------------------------------------------------
 -module(demo_home).
+-moduledoc "Demo home page: Observer-style dashboard of live VM statistics.".
 
 -behaviour(nit_callback).
 

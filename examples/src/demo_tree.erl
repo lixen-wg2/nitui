@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Tree Page - live application / supervision tree.
-%%% @end
+%%% Demo Tree Page - live application / supervision tree.
 %%%-------------------------------------------------------------------
 -module(demo_tree).
+-moduledoc "Demo tree page: live application and supervision tree.".
 
 -behaviour(nit_callback).
 

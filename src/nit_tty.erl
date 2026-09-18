@@ -1,17 +1,20 @@
 %%%-------------------------------------------------------------------
-%%% @doc TTY owner process for NitUI.
-%%%
-%%% Manages the terminal state using OTP 29's prim_tty and io_ansi modules.
-%%% Responsibilities:
-%%% - Initialize raw mode terminal
-%%% - Enter alternate screen buffer
-%%% - Hide cursor
-%%% - Ensure cleanup on exit (restore terminal state)
-%%% - Provide write interface for rendering
-%%% - Forward input data to nit_input for parsing
-%%% @end
+%%% TTY owner process for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_tty).
+-moduledoc """
+TTY owner process for NitUI.
+
+Manages the terminal state using OTP 29's `prim_tty` and `io_ansi` modules.
+Responsibilities:
+
+- Initialize raw mode terminal
+- Enter alternate screen buffer
+- Hide cursor
+- Ensure cleanup on exit (restore terminal state)
+- Provide write interface for rendering
+- Forward input data to `nit_input` for parsing
+""".
 
 -behaviour(gen_server).
 
@@ -53,9 +56,12 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Stop input, drain terminal resets, and restore cooked terminal mode.
-%% Repeated calls return the first result without writing or restarting input.
-%% Failures are deliberately sanitized: no terminal state or output escapes.
+-doc """
+Stop input, drain terminal resets, and restore cooked terminal mode.
+
+Repeated calls return the first result without writing or restarting input.
+Failures are deliberately sanitized: no terminal state or output escapes.
+""".
 -spec cleanup() -> ok | {error, cleanup_failed}.
 cleanup() ->
     try gen_server:call(?MODULE, cleanup, ?CLEANUP_CALL_TIMEOUT) of
@@ -65,16 +71,19 @@ cleanup() ->
         _:_ -> {error, cleanup_failed}
     end.
 
-%% @doc Write raw data to the terminal.
+-doc "Write raw data to the terminal.".
 -spec write(iodata()) -> ok.
 write(Data) ->
     gen_server:cast(?MODULE, {write, Data}),
     ok.
 
-%% @doc Synchronously submit one complete control frame to the active terminal.
-%% Unlike rendering writes, this never logs or falls back to stdio. A writer
-%% acknowledgement confirms terminal output, not acceptance of a control code.
-%% Failures are sanitized and never retried (a device may have written bytes).
+-doc """
+Synchronously submit one complete control frame to the active terminal.
+
+Unlike rendering writes, this never logs or falls back to stdio. A writer
+acknowledgement confirms terminal output, not acceptance of a control code.
+Failures are sanitized and never retried (a device may have written bytes).
+""".
 -spec write_control(binary()) -> ok | {error, unavailable | write_failed}.
 write_control(Data) when is_binary(Data) ->
     Deadline = erlang:monotonic_time(millisecond) + ?CONTROL_CALL_TIMEOUT,
@@ -92,18 +101,21 @@ write_control(Data) when is_binary(Data) ->
 write_control(_Data) ->
     {error, write_failed}.
 
-%% @doc Clear the screen.
+-doc "Clear the screen.".
 -spec clear() -> ok.
 clear() ->
     write(nit_terminal:clear()).
 
-%% @doc Get terminal size as {Cols, Rows}.
+-doc "Get terminal size as `{Cols, Rows}`.".
 -spec get_size() -> {ok, {pos_integer(), pos_integer()}} | {error, term()}.
 get_size() ->
     gen_server:call(?MODULE, get_size).
 
-%% @doc Set the process to notify on terminal resize.
-%% The target will receive {resize, Cols, Rows} messages.
+-doc """
+Set the process to notify on terminal resize.
+
+The target will receive `{resize, Cols, Rows}` messages.
+""".
 -spec set_resize_target(pid()) -> ok.
 set_resize_target(Pid) ->
     gen_server:cast(?MODULE, {set_resize_target, Pid}).

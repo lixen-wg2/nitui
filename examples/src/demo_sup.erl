@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo supervisor.
-%%% @end
+%%% Demo supervisor.
 %%%-------------------------------------------------------------------
 -module(demo_sup).
+-moduledoc "Demo supervisor: starts the demo UI server as a temporary child.".
 
 -behaviour(supervisor).
 

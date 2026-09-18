@@ -1,10 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc Explicit, write-only terminal clipboard support (OSC 52).
-%%% No clipboard queries or reads are issued. `sent' describes terminal
-%%% output only: terminals and multiplexers may ignore or refuse OSC 52.
-%%% @end
+%%% Terminal clipboard support for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_clipboard).
+-moduledoc """
+Explicit, write-only terminal clipboard support (OSC 52).
+
+No clipboard queries or reads are issued. `sent` describes terminal
+output only: terminals and multiplexers may ignore or refuse OSC 52.
+""".
 
 -export([copy/1, encode/2]).
 -export_type([error_reason/0, result/0, options/0]).
@@ -17,11 +20,15 @@
 -type options() :: #{enabled => boolean(), max_bytes => pos_integer(),
                      transport => direct | tmux}.
 
-%% @doc Copy UTF-8 chardata using the active NitUI terminal, never stdio.
-%% App env: clipboard_enabled (default true), clipboard_max_bytes (65536,
-%% valid range 1..1048576), clipboard_transport (direct by default, or tmux).
-%% tmux passthrough must be explicitly enabled here and supported/configured
-%% by the multiplexer; its presence is not detected or assumed.
+-doc """
+Copy UTF-8 chardata using the active NitUI terminal, never stdio.
+
+App env: `clipboard_enabled` (default `true`), `clipboard_max_bytes`
+(`65536`, valid range 1..1048576), `clipboard_transport` (`direct` by
+default, or `tmux`). tmux passthrough must be explicitly enabled here and
+supported/configured by the multiplexer; its presence is not detected or
+assumed.
+""".
 -spec copy(unicode:chardata()) -> result().
 copy(Text) ->
     Options = #{enabled => application:get_env(nitui, clipboard_enabled, true),
@@ -38,11 +45,15 @@ copy(Text) ->
             Error
     end.
 
-%% @doc Pure OSC 52 encoding. Missing options use the same defaults as copy/1,
-%% without reading application env. Only true enables encoding; other values
-%% return disabled. Invalid limits, transports or option keys return unavailable.
-%% The limit counts raw UTF-8 bytes, before base64. Refuse, never truncate.
-%% Empty text is valid and produces an explicit clipboard-clearing write.
+-doc """
+Pure OSC 52 encoding.
+
+Missing options use the same defaults as `copy/1`, without reading
+application env. Only `true` enables encoding; other values return
+`disabled`. Invalid limits, transports or option keys return `unavailable`.
+The limit counts raw UTF-8 bytes, before base64. Refuse, never truncate.
+Empty text is valid and produces an explicit clipboard-clearing write.
+""".
 -spec encode(unicode:chardata(), options()) -> {ok, binary()} | {error, error_reason()}.
 encode(Text, Options) when is_map(Options) ->
     case maps:get(enabled, Options, true) of

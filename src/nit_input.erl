@@ -1,19 +1,26 @@
 %%%-------------------------------------------------------------------
-%%% @doc Input driver for NitUI.
-%%%
-%%% Receives raw input from nit_tty and parses ANSI escape sequences into
-%%% clean event messages. Forwards parsed events to nit_server.
-%%%
-%%% Parsed events:
-%%% - {key, up | down | left | right | home | 'end' | page_up | page_down}
-%%% - {key, {shift, up | down | left | right | home | 'end' | page_up | page_down}}
-%%% - {char, Char} - Regular character
-%%% - {ctrl, Char} - Control key (e.g., {ctrl, $c})
-%%% - {mouse, scroll, up | down | left | right, Col, Row}
-%%% - enter, tab, backspace, escape, delete
-%%% @end
+%%% Input driver for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_input).
+-moduledoc """
+Input driver for NitUI.
+
+Receives raw input from `nit_tty` and parses ANSI escape sequences into
+clean event messages. Forwards parsed events to `nit_server`.
+
+Parsed events:
+
+- `{key, up | down | left | right | home | 'end' | page_up | page_down}`
+- `{key, {shift, up | down | left | right | home | 'end' | page_up | page_down}}`
+- `{key, btab}` - Shift+Tab
+- `{key, f1}`..`{key, f12}`
+- `{char, Char}` - regular character
+- `{ctrl, Char}` - control key (e.g. `{ctrl, $c}`)
+- `{mouse, scroll, up | down | left | right, Col, Row}`
+- `{mouse, click | motion | release, Button, Col, Row}`
+- `{paste, start | 'end'}` - bracketed paste markers
+- `enter`, `tab`, `backspace`, `escape`, `delete`
+""".
 
 -behaviour(gen_server).
 
@@ -41,12 +48,12 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Handle raw input data from nit_tty.
+-doc "Handle raw input data from `nit_tty`.".
 -spec handle_data(binary()) -> ok.
 handle_data(Data) ->
     gen_server:cast(?MODULE, {data, Data}).
 
-%% @doc Set the target process to receive input events.
+-doc "Set the target process to receive input events.".
 -spec set_target(pid()) -> ok.
 set_target(Pid) ->
     gen_server:cast(?MODULE, {set_target, Pid}).

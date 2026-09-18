@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Input Element
-%%%
-%%% Renders a text input field with cursor and placeholder support.
-%%% @end
+%%% NitUI Input Element
 %%%-------------------------------------------------------------------
 -module(nit_el_input).
+-moduledoc """
+NitUI Input Element.
+
+Renders a text input field with cursor and placeholder support.
+""".
 
 -behaviour(nit_element).
 

@@ -1,12 +1,15 @@
 %%%-------------------------------------------------------------------
-%%% @doc Read-only wrapped text, with source-grapheme selection.
-%%% Only render/3, size callbacks and bounds/2 accept parent allocations.
-%%% Interaction functions accept resolved bounds; mouse coordinates are
-%%% one-based terminal coordinates. No clipboard or terminal cursor state
-%%% is changed here.
-%%% @end
+%%% NitUI Text View Element
 %%%-------------------------------------------------------------------
 -module(nit_el_text_view).
+-moduledoc """
+Read-only wrapped text, with source-grapheme selection.
+
+Only `render/3`, the size callbacks and `bounds/2` accept parent allocations.
+Interaction functions accept resolved bounds; mouse coordinates are
+one-based terminal coordinates. No clipboard or terminal cursor state
+is changed here.
+""".
 -behaviour(nit_element).
 
 -include("nit_elements.hrl").

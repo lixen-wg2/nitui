@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Hit Testing - Find elements at screen coordinates.
-%%% @end
+%%% NitUI Hit Testing
 %%%-------------------------------------------------------------------
 -module(nit_hit).
+-moduledoc "NitUI Hit Testing. Find elements at screen coordinates.".
 
 -include("nit_elements.hrl").
 

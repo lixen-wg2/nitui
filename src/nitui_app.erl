@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI application callback module.
-%%% @end
+%%% NitUI application callback module
 %%%-------------------------------------------------------------------
 -module(nitui_app).
+-moduledoc "NitUI application callback module.".
 
 -behaviour(application).
 
@@ -11,10 +11,7 @@
 %% Internal
 -export([filter_sigwinch/2]).
 
-%%--------------------------------------------------------------------
-%% @doc Start the NitUI application.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Start the NitUI application.".
 -spec start(application:start_type(), term()) -> {ok, pid()} | {error, term()}.
 start(_StartType, _StartArgs) ->
     %% Filter out "supervisor received unexpected message: sigwinch" warnings.
@@ -23,10 +20,7 @@ start(_StartType, _StartArgs) ->
     logger:add_primary_filter(nit_sigwinch_filter, {fun filter_sigwinch/2, []}),
     nit_sup:start_link().
 
-%%--------------------------------------------------------------------
-%% @doc Stop the NitUI application.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Stop the NitUI application.".
 -spec stop(term()) -> ok.
 stop(_State) ->
     logger:remove_primary_filter(nit_sigwinch_filter),
@@ -36,7 +30,7 @@ stop(_State) ->
 %% Internal
 %%====================================================================
 
-%% @doc Logger filter that suppresses resize signal noise.
+%% Logger filter that suppresses resize signal noise.
 %% The BEAM/runtime TTY layers may deliver raw sigwinch atoms or
 %% {Ref, {signal, sigwinch}} messages. OTP gen_servers/supervisors log
 %% unexpected messages before user code can do anything useful with them.

@@ -1,12 +1,14 @@
 %%%-------------------------------------------------------------------
-%%% @doc Signal handler for NitUI.
-%%%
-%%% This is a gen_event handler that registers with erl_signal_server
-%%% to receive Unix signals. When SIGWINCH (terminal resize) is received,
-%%% it notifies nit_tty which then forwards the event to nit_server.
-%%% @end
+%%% Signal handler for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_sighandler).
+-moduledoc """
+Signal handler for NitUI.
+
+This is a `gen_event` handler that registers with `erl_signal_server`
+to receive Unix signals. When SIGWINCH (terminal resize) is received,
+it notifies `nit_tty` which then forwards the event to `nit_server`.
+""".
 
 -behaviour(gen_event).
 

@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI VBox Element
-%%%
-%%% Renders children vertically with optional spacing.
-%%% @end
+%%% NitUI VBox Element
 %%%-------------------------------------------------------------------
 -module(nit_el_vbox).
+-moduledoc """
+NitUI VBox Element.
+
+Renders children vertically with optional spacing.
+""".
 
 -behaviour(nit_element).
 

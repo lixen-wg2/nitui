@@ -1,18 +1,22 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Callback Behaviour
-%%%
-%%% Defines the behaviour for NitUI UI callback modules.
-%%% Callback modules implement this behaviour to create TUI applications.
-%%%
-%%% Required callbacks:
-%%% - init/1: Initialize state from arguments
-%%% - view/1: Render state to element tree
-%%%
-%%% Optional callbacks:
-%%% - handle_event/2: Handle UI events (keyboard, mouse, etc.)
-%%% @end
+%%% NitUI Callback Behaviour
 %%%-------------------------------------------------------------------
 -module(nit_callback).
+-moduledoc """
+NitUI Callback Behaviour.
+
+Defines the behaviour for NitUI UI callback modules.
+Callback modules implement this behaviour to create TUI applications.
+
+Required callbacks:
+
+- `c:init/1`: initialize state from arguments
+- `c:view/1`: render state to an element tree
+
+Optional callbacks:
+
+- `c:handle_event/2`: handle UI events (keyboard, mouse, etc.)
+""".
 
 -include("nit_elements.hrl").
 
@@ -36,6 +40,7 @@
 -type table_select_event() :: {table_select, Id :: term(), RowIndex :: pos_integer(), RowData :: list()}.
 -type table_cell_click_event() :: {table_cell_click, Id :: term(), RowIndex :: pos_integer(),
                                   ColumnId :: term(), RowData :: list()}.
+-type table_header_click_event() :: {table_header_click, Id :: term(), ColumnId :: term()}.
 -type tree_activate_event() :: {tree_activate, Id :: term(), NodeId :: term()}.
 -type tree_select_event() :: {tree_select, Id :: term(), NodeId :: term()}.
 -type generic_event() :: {event, term()}.
@@ -49,6 +54,7 @@
                | table_activate_event()
                | table_select_event()
                | table_cell_click_event()
+               | table_header_click_event()
                | tree_activate_event()
                | tree_select_event()
                | generic_event()
@@ -99,29 +105,32 @@
 %% Behaviour Callbacks
 %%====================================================================
 
-%% @doc Initialize the callback module state.
-%% Called once when the UI server starts.
-%%
-%% Returns:
-%% - {ok, State} - Initial state, view/1 will be called to get the tree
-%% - {ok, State, Tree} - Initial state and element tree
+-doc """
+Initialize the callback module state. Called once when the UI server starts.
+
+Returns:
+- `{ok, State}` - initial state, `view/1` will be called to get the tree
+- `{ok, State, Tree}` - initial state and element tree
+""".
 -callback init(Args :: term()) -> init_result().
 
-%% @doc Render the current state to an element tree.
-%% Called after init/1 and after each state update.
-%%
-%% view/1 MUST be a pure function of State. On the initial render
-%% (after init/1 and after a push) the framework invokes view/1
-%% twice: the first pass seeds the tree context used by
-%% nitui:selected_item/1, and the second pass produces the tree
-%% that is actually rendered. Any side effects in view/1 will fire
-%% twice on those entry points.
+-doc """
+Render the current state to an element tree. Called after `init/1` and after
+each state update.
+
+`view/1` MUST be a pure function of State. On the initial render (after
+`init/1` and after a push) the framework invokes `view/1` twice: the first
+pass seeds the tree context used by `nitui:selected_item/1`, and the second
+pass produces the tree that is actually rendered. Any side effects in `view/1`
+will fire twice on those entry points.
+""".
 -callback view(State :: state()) -> element().
 
-%% @doc Handle UI events.
-%% Called when user interacts with the UI (clicks, key presses, etc.)
-%%
-%% This callback is optional. If not implemented, events are ignored.
+-doc """
+Handle UI events, such as clicks and key presses.
+
+This callback is optional. If not implemented, events are ignored.
+""".
 -callback handle_event(Event :: event(), State :: state()) -> handle_event_result().
 
 -optional_callbacks([handle_event/2]).

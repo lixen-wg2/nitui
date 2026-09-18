@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Tree Utilities - Update elements in the UI tree.
-%%% @end
+%%% NitUI Tree Utilities
 %%%-------------------------------------------------------------------
 -module(nit_tree).
+-moduledoc "NitUI Tree Utilities. Update elements in the UI tree.".
 
 -include("nit_elements.hrl").
 

@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc Sparkline Element
-%%%
-%%% Displays a mini chart showing trend over time using braille,
-%%% block, or ASCII characters.
-%%% @end
+%%% Sparkline Element
 %%%-------------------------------------------------------------------
 -module(nit_el_sparkline).
+-moduledoc """
+Sparkline Element.
+
+Displays a mini chart showing trend over time using braille,
+block, or ASCII characters.
+""".
 
 -behaviour(nit_element).
 

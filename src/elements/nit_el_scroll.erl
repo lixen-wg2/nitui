@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Scroll Container Element
-%%%
-%%% A scrollable viewport that can contain child elements.
-%%% Supports vertical scrolling with optional scrollbar indicator.
-%%% @end
+%%% NitUI Scroll Container Element
 %%%-------------------------------------------------------------------
 -module(nit_el_scroll).
+-moduledoc """
+NitUI Scroll Container Element.
+
+A scrollable viewport that can contain child elements.
+Supports vertical scrolling with optional scrollbar indicator.
+""".
 
 -behaviour(nit_element).
 
@@ -55,8 +57,10 @@ width(#scroll{width = W}, _Bounds) -> W.
 fixed_width(#scroll{width = fill}) -> auto;
 fixed_width(#scroll{width = W}) -> W.
 
-%% @doc Content dimensions for resolved viewport bounds. Rendering, navigation
-%% and hit testing must all remeasure wrapped children after reserving the bar.
+-doc """
+Content dimensions for resolved viewport bounds. Rendering, navigation
+and hit testing must all remeasure wrapped children after reserving the bar.
+""".
 -spec content_size(#scroll{}, #bounds{}) -> {pos_integer(), non_neg_integer()}.
 content_size(#scroll{children = Children, show_scrollbar = ShowBar}, Bounds) ->
     TotalHeight = calculate_content_height(Children, Bounds),

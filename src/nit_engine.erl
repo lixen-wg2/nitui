@@ -1,9 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Engine - Shared navigation, resolution and data access
-%%% logic for the nitui TUI framework.
-%%% @end
+%%% NitUI Engine
 %%%-------------------------------------------------------------------
 -module(nit_engine).
+-moduledoc """
+NitUI Engine.
+
+Shared navigation, resolution and data access logic for the nitui TUI
+framework.
+""".
 
 -include("nit_elements.hrl").
 
@@ -408,8 +412,11 @@ split_at(Bin, Pos) ->
 %% Element Navigation (unified per-element dispatch)
 %%====================================================================
 
-%% @doc Navigate an element by a single step (arrow keys).
-%% Returns {ok, NewTree, NewUS} or unhandled.
+-doc """
+Navigate an element by a single step (arrow keys).
+
+Returns `{ok, NewTree, NewUS}` or `unhandled`.
+""".
 -spec navigate_element(term(), term(), term(), term(), module(), term()) ->
     {ok, term(), term()} | unhandled.
 navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
@@ -451,8 +458,11 @@ navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
             unhandled
     end.
 
-%% @doc Navigate an element by a page-sized step (PgUp/PgDn).
-%% Returns {ok, NewTree, NewUS} or unhandled.
+-doc """
+Navigate an element by a page-sized step (PgUp/PgDn).
+
+Returns `{ok, NewTree, NewUS}` or `unhandled`.
+""".
 -spec page_navigate_element(term(), term(), term(), term(), module(), term()) ->
     {ok, term(), term()} | unhandled.
 page_navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
@@ -494,8 +504,11 @@ page_navigate_element(Dir, ElementId, Tree, Bounds, Cb, US) ->
             unhandled
     end.
 
-%% @doc Page-navigate within active tab content.
-%% Returns {ok, NewTree, NewUS} or unhandled.
+-doc """
+Page-navigate within active tab content.
+
+Returns `{ok, NewTree, NewUS}` or `unhandled`.
+""".
 -spec page_navigate_tab_content(term(), term(), term(), [term()], term(), term(), module(), term()) ->
     {ok, term(), term()} | unhandled.
 page_navigate_tab_content(Dir, ContainerId, Tabs, Content, Tree, Bounds, Cb, US) ->
@@ -564,8 +577,12 @@ text_view_key(Tree, Id, Event, Bounds) when Id =/= undefined ->
     end;
 text_view_key(_Tree, _Id, _Event, _Bounds) -> false.
 
-%% @doc Apply a character insertion at cursor position.
-%% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input.
+-doc """
+Apply a character insertion at cursor position.
+
+Returns `{ok, NewTree, InputId, NewValue}`, or `false` if the element is not
+an input.
+""".
 -spec apply_char_input(term(), term(), integer() | string() | binary()) ->
     {ok, term(), term(), binary()} | false.
 apply_char_input(_Tree, undefined, _Char) ->
@@ -586,8 +603,12 @@ apply_char_input(Tree, FocusedChild, Char) ->
             false
     end.
 
-%% @doc Apply a backspace at cursor position.
-%% Returns {ok, NewTree, InputId, NewValue} or false if element is not an input or cursor at 0.
+-doc """
+Apply a backspace at cursor position.
+
+Returns `{ok, NewTree, InputId, NewValue}`, or `false` if the element is not
+an input or the cursor is at 0.
+""".
 -spec apply_backspace(term(), term()) ->
     {ok, term(), term(), binary()} | false.
 apply_backspace(_Tree, undefined) ->
@@ -798,8 +819,11 @@ input_chars(Value) when is_list(Value) ->
 %% Focus Cycling
 %%====================================================================
 
-%% @doc Cycle focus to the next or previous container and pick first child.
-%% Returns {NewContainer, NewChild}.
+-doc """
+Cycle focus to the next or previous container and pick its first child.
+
+Returns `{NewContainer, NewChild}`.
+""".
 -spec cycle_focus(next | prev, [term()], term(), term()) ->
     {term(), term()}.
 cycle_focus(Dir, ContainerIds, CurrentContainer, Tree) ->
@@ -814,8 +838,11 @@ cycle_focus(Dir, ContainerIds, CurrentContainer, Tree) ->
 %% Initialization
 %%====================================================================
 
-%% @doc Initialize callback module and compute initial focus state.
-%% Returns {UserState, Tree, ContainerIds, FocusedContainer, FocusedChild}.
+-doc """
+Initialize the callback module and compute the initial focus state.
+
+Returns `{UserState, Tree, ContainerIds, FocusedContainer, FocusedChild}`.
+""".
 -spec init_focus_state(module(), term()) ->
     {term(), term(), [term()], term(), term()}.
 init_focus_state(CallbackModule, InitArg) ->
@@ -904,17 +931,18 @@ map_tree_widget_layout(Element, Active, Fun, Bounds) ->
 %% Internal
 %%====================================================================
 
-%% @doc Render the user's view.
-%%
-%% When ContextTree is `undefined' (initial render after init or push),
-%% view/1 is invoked twice: the first call seeds the
-%% `nitui_view_tree' process-dictionary key, and the second call
-%% sees that tree via nitui:selected_item/1. view/1 MUST therefore
-%% be a pure function of State on those entry points; side effects
-%% will fire twice.
-%%
-%% On subsequent re-renders ContextTree is the previous tree and
-%% view/1 is invoked exactly once.
+-doc """
+Render the user's view.
+
+When `ContextTree` is `undefined` (initial render after init or push),
+`view/1` is invoked twice: the first call seeds the `nitui_view_tree`
+process-dictionary key, and the second call sees that tree via
+`nitui:selected_item/1`. `view/1` MUST therefore be a pure function of
+`State` on those entry points; side effects will fire twice.
+
+On subsequent re-renders `ContextTree` is the previous tree and `view/1`
+is invoked exactly once.
+""".
 call_view(CallbackModule, State, undefined) ->
     Tree1 = call_view_once(CallbackModule, State, undefined),
     call_view_once(CallbackModule, State, Tree1);

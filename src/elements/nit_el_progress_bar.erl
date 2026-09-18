@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc Progress Bar Element
-%%%
-%%% Displays a progress bar with value/max, optional percentage,
-%%% and threshold-based coloring.
-%%% @end
+%%% Progress Bar Element
 %%%-------------------------------------------------------------------
 -module(nit_el_progress_bar).
+-moduledoc """
+Progress Bar Element.
+
+Displays a progress bar with value/max, optional percentage,
+and threshold-based coloring.
+""".
 
 -behaviour(nit_element).
 

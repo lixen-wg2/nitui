@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo application for NitUI TUI framework.
-%%% @end
+%%% Demo application for NitUI TUI framework.
 %%%-------------------------------------------------------------------
 -module(demo_app).
+-moduledoc "Demo application for the NitUI TUI framework.".
 
 -behaviour(application).
 

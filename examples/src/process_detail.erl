@@ -1,9 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Process detail view - shows detailed info about a process
-%%% Demonstrates the {switch, Module, Args} pattern for navigation
-%%% @end
+%%% Process detail view - shows detailed info about a process
 %%%-------------------------------------------------------------------
 -module(process_detail).
+-moduledoc """
+Demo process detail view: a pushed view initialised from `Args`.
+
+Returns `pop` to restore the screen that pushed it.
+""".
 
 -behaviour(nit_callback).
 
