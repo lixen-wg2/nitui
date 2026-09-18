@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Header Element
-%%%
-%%% Displays a top header bar with title, subtitle, and info items.
-%%% @end
+%%% Header Element
 %%%-------------------------------------------------------------------
 -module(nit_el_header).
+-moduledoc """
+Header Element.
+
+Displays a top header bar with title, subtitle, and info items.
+""".
 
 -behaviour(nit_element).
 

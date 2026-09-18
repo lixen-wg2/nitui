@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Tree navigation and viewport helpers.
-%%% @end
+%%% Tree navigation helpers for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_tree_nav).
+-moduledoc "Tree navigation and viewport helpers.".
 
 -include("nit_elements.hrl").
 

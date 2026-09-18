@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Modal Element
-%%%
-%%% Renders a centered overlay modal with border and title.
-%%% @end
+%%% NitUI Modal Element
 %%%-------------------------------------------------------------------
 -module(nit_el_modal).
+-moduledoc """
+NitUI Modal Element.
+
+Renders a centered overlay modal with border and title.
+""".
 
 -behaviour(nit_element).
 

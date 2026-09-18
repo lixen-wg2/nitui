@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Network Page - Network/ports with dummy data
-%%% @end
+%%% Demo Network Page - network/ports with dummy data
 %%%-------------------------------------------------------------------
 -module(demo_network).
+-moduledoc "Demo network page: network and port counters with dummy data.".
 
 -behaviour(nit_callback).
 

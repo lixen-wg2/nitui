@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Layout Utilities
-%%%
-%%% Centralized size calculation functions for elements.
-%%% Dispatches to element modules via nit_element behaviour.
-%%% @end
+%%% NitUI Layout Utilities
 %%%-------------------------------------------------------------------
 -module(nit_layout).
+-moduledoc """
+NitUI Layout Utilities.
+
+Centralized size calculation functions for elements.
+Dispatches to element modules via the `nit_element` behaviour.
+""".
 
 -include("nit_elements.hrl").
 
@@ -17,26 +19,35 @@
 %% API
 %%====================================================================
 
-%% @doc Calculate the height of an element given bounds.
-%% Dispatches to element module's height/2 callback.
-%% Returns pos_integer() for fixed heights, or {flex, Min} for flexible elements.
+-doc """
+Calculate the height of an element given bounds.
+
+Dispatches to the element module's `height/2` callback. Returns a
+`t:pos_integer/0` for fixed heights, or `{flex, Min}` for flexible elements.
+""".
 -spec element_height(tuple(), #bounds{}) -> pos_integer() | {flex, non_neg_integer()}.
 element_height(Element, Bounds) when is_tuple(Element) ->
     nit_element:height(Element, Bounds);
 element_height(_, _) ->
     1.
 
-%% @doc Calculate the width of an element given bounds.
-%% Dispatches to element module's width/2 callback.
+-doc """
+Calculate the width of an element given bounds.
+
+Dispatches to the element module's `width/2` callback.
+""".
 -spec element_width(tuple(), #bounds{}) -> pos_integer().
 element_width(Element, Bounds) when is_tuple(Element) ->
     nit_element:width(Element, Bounds);
 element_width(_, _) ->
     1.
 
-%% @doc Returns the fixed width of an element, or 'auto' if it should fill remaining space.
-%% Used by hbox layout to distribute space among children.
-%% Dispatches to element module's fixed_width/1 callback.
+-doc """
+Return the fixed width of an element, or `auto` if it should fill remaining space.
+
+Used by hbox layout to distribute space among children. Dispatches to the
+element module's `fixed_width/1` callback.
+""".
 -spec element_fixed_width(tuple()) -> auto | pos_integer().
 element_fixed_width(Element) when is_tuple(Element) ->
     nit_element:fixed_width(Element);
@@ -47,15 +58,22 @@ element_fixed_width(_) ->
 %% VBox Layout Helpers
 %%====================================================================
 
-%% @doc Calculate heights for vbox children, distributing remaining space to flex elements.
-%% Flex elements (like spacer) return {flex, MinHeight} from their height/2 callback.
-%% This function resolves those to actual pixel heights based on available space.
+-doc """
+Calculate heights for vbox children, distributing remaining space to flex elements.
+
+Flex elements (like spacer) return `{flex, MinHeight}` from their `height/2`
+callback. This function resolves those to actual row heights based on the
+available space.
+""".
 -spec calculate_vbox_heights([tuple()], #bounds{}, non_neg_integer()) -> [pos_integer()].
 calculate_vbox_heights(Children, Bounds, Spacing) ->
     calculate_vbox_heights(Children, Bounds, Spacing, 0).
 
-%% @doc Calculate heights for vbox children with an explicit local Y offset.
-%% The local offset is needed because bounds.y is absolute in nested layouts.
+-doc """
+Calculate heights for vbox children with an explicit local Y offset.
+
+The local offset is needed because `bounds.y` is absolute in nested layouts.
+""".
 -spec calculate_vbox_heights([tuple()], #bounds{}, non_neg_integer(), non_neg_integer()) ->
     [pos_integer()].
 calculate_vbox_heights(Children, Bounds, Spacing, LocalY) ->
@@ -99,13 +117,16 @@ calculate_vbox_heights(Children, Bounds, Spacing, LocalY) ->
 %% HBox Layout Helpers
 %%====================================================================
 
-%% @doc Calculate widths for hbox children, sharing remaining width between auto children.
+-doc "Calculate widths for hbox children, sharing remaining width between auto children.".
 -spec calculate_hbox_widths([tuple()], #bounds{}, non_neg_integer()) -> [pos_integer()].
 calculate_hbox_widths(Children, Bounds, Spacing) ->
     calculate_hbox_widths(Children, Bounds, Spacing, 0).
 
-%% @doc Calculate widths for hbox children with an explicit local X offset.
-%% The local offset is needed because bounds.x is absolute in nested layouts.
+-doc """
+Calculate widths for hbox children with an explicit local X offset.
+
+The local offset is needed because `bounds.x` is absolute in nested layouts.
+""".
 -spec calculate_hbox_widths([tuple()], #bounds{}, non_neg_integer(), non_neg_integer()) ->
     [pos_integer()].
 calculate_hbox_widths(Children, Bounds, Spacing, LocalX) ->

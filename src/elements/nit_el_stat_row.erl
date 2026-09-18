@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Stat Row Element
-%%%
-%%% Displays a horizontal row of key-value pairs with separators.
-%%% @end
+%%% Stat Row Element
 %%%-------------------------------------------------------------------
 -module(nit_el_stat_row).
+-moduledoc """
+Stat Row Element.
+
+Displays a horizontal row of key-value pairs with separators.
+""".
 
 -behaviour(nit_element).
 

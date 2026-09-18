@@ -1,17 +1,20 @@
 %%%-------------------------------------------------------------------
-%%% @doc Virtual Screen Buffer for NitUI.
-%%%
-%%% Provides a virtual screen buffer that stores character cells with
-%%% their attributes. Supports differential rendering by comparing
-%%% the current buffer with the previous one and generating minimal
-%%% ANSI output for only the changed cells.
-%%%
-%%% Each cell contains:
-%%% - Character (unicode codepoint or binary)
-%%% - Style (foreground, background, bold, dim, etc.)
-%%% @end
+%%% Virtual Screen Buffer for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_screen).
+-moduledoc """
+Virtual Screen Buffer for NitUI.
+
+Provides a virtual screen buffer that stores character cells with
+their attributes. Supports differential rendering by comparing
+the current buffer with the previous one and generating minimal
+ANSI output for only the changed cells.
+
+Each cell contains:
+
+- Character (unicode codepoint or binary)
+- Style (foreground, background, bold, dim, etc.)
+""".
 
 -export([new/2, resize/3, put_char/5, put_string/5, fill/3]).
 -export([diff/2, to_ansi/1, clear/1]).
@@ -36,7 +39,7 @@
 %% API
 %%====================================================================
 
-%% @doc Create a new screen buffer filled with spaces.
+-doc "Create a new screen buffer filled with spaces.".
 -spec new(pos_integer(), pos_integer()) -> screen().
 new(Width, Height) ->
     EmptyCell = #cell{},
@@ -44,7 +47,7 @@ new(Width, Height) ->
     Cells = array:new([{size, Size}, {fixed, true}, {default, EmptyCell}]),
     #screen{width = Width, height = Height, cells = Cells}.
 
-%% @doc Resize the screen buffer, preserving content where possible.
+-doc "Resize the screen buffer, preserving content where possible.".
 -spec resize(screen(), pos_integer(), pos_integer()) -> screen().
 resize(#screen{width = OldW, height = OldH, cells = OldCells}, NewW, NewH) ->
     EmptyCell = #cell{},
@@ -66,7 +69,7 @@ resize(#screen{width = OldW, height = OldH, cells = OldCells}, NewW, NewH) ->
     end, NewCells, lists:seq(0, NewH - 1)),
     #screen{width = NewW, height = NewH, cells = CopiedCells}.
 
-%% @doc Put a single character at position (0-indexed).
+-doc "Put a single character at position (0-indexed).".
 -spec put_char(screen(), non_neg_integer(), non_neg_integer(), integer() | binary(), map()) -> screen().
 put_char(Screen = #screen{width = W, height = H, cells = Cells}, Col, Row, Char, Style) 
   when Col >= 0, Col < W, Row >= 0, Row < H ->
@@ -76,7 +79,7 @@ put_char(Screen = #screen{width = W, height = H, cells = Cells}, Col, Row, Char,
 put_char(Screen, _, _, _, _) ->
     Screen.  %% Out of bounds, ignore
 
-%% @doc Put a string starting at position (0-indexed).
+-doc "Put a string starting at position (0-indexed).".
 -spec put_string(screen(), non_neg_integer(), non_neg_integer(), iodata(), map()) -> screen().
 put_string(Screen, Col, Row, String, Style) ->
     Chars = unicode:characters_to_list(iolist_to_binary(String)),
@@ -92,7 +95,7 @@ put_chars(Screen = #screen{width = W}, Col, Row, [Char | Rest], Style) ->
         false -> put_chars(NewScreen, NextCol, Row, Rest, Style)
     end.
 
-%% @doc Fill entire screen with a character and style.
+-doc "Fill entire screen with a character and style.".
 -spec fill(screen(), integer() | binary(), map()) -> screen().
 fill(Screen = #screen{width = W, height = H}, Char, Style) ->
     Cell = #cell{char = Char, style = Style},
@@ -100,17 +103,17 @@ fill(Screen = #screen{width = W, height = H}, Char, Style) ->
     NewCells = array:new([{size, Size}, {fixed, true}, {default, Cell}]),
     Screen#screen{cells = NewCells}.
 
-%% @doc Clear the screen (fill with spaces, no style).
+-doc "Clear the screen (fill with spaces, no style).".
 -spec clear(screen()) -> screen().
 clear(Screen) ->
     fill(Screen, $\s, #{}).
 
-%% @doc Get screen dimensions.
+-doc "Get screen dimensions.".
 -spec get_size(screen()) -> {pos_integer(), pos_integer()}.
 get_size(#screen{width = W, height = H}) ->
     {W, H}.
 
-%% @doc Get cell at position (0-indexed).
+-doc "Get cell at position (0-indexed).".
 -spec get_cell(screen(), non_neg_integer(), non_neg_integer()) -> {integer() | binary(), map()}.
 get_cell(#screen{width = W, height = H, cells = Cells}, Col, Row) 
   when Col >= 0, Col < W, Row >= 0, Row < H ->
@@ -120,12 +123,12 @@ get_cell(#screen{width = W, height = H, cells = Cells}, Col, Row)
 get_cell(_, _, _) ->
     {$\s, #{}}.  %% Out of bounds returns space
 
-%% @doc Generate ANSI output for the entire screen.
+-doc "Generate ANSI output for the entire screen.".
 -spec to_ansi(screen()) -> iolist().
 to_ansi(#screen{width = W, height = H, cells = Cells}) ->
     render_rows(Cells, W, H, 0, #{}, []).
 
-%% @doc Compare two screens and generate ANSI output for differences only.
+-doc "Compare two screens and generate ANSI output for differences only.".
 -spec diff(screen(), screen()) -> iolist().
 diff(OldScreen, NewScreen) ->
     case diff_screens(OldScreen, NewScreen) of
@@ -237,8 +240,11 @@ char_to_binary(Bin) when is_binary(Bin) ->
 %% Internal - ANSI parsing to populate screen buffer
 %%====================================================================
 
-%% @doc Parse ANSI output and populate a screen buffer.
-%% Returns a new screen with the ANSI content rendered into it.
+-doc """
+Parse ANSI output and populate a screen buffer.
+
+Returns a new screen with the ANSI content rendered into it.
+""".
 -spec from_ansi(iodata(), pos_integer(), pos_integer()) -> screen().
 from_ansi(AnsiData, Width, Height) ->
     Screen = new(Width, Height),

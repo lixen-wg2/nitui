@@ -17,4 +17,5 @@ logs
 .idea
 *.iml
 rebar3.crashdump
+doc
 *~

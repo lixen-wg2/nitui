@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Resolve rendered bounds for elements within a tree.
-%%% @end
+%%% Bounds resolution for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_bounds).
+-moduledoc "Resolve rendered bounds for elements within a tree.".
 
 -include("nit_elements.hrl").
 

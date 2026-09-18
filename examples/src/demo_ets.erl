@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo ETS Page - live ETS table inventory.
-%%% @end
+%%% Demo ETS Page - live ETS table inventory.
 %%%-------------------------------------------------------------------
 -module(demo_ets).
+-moduledoc "Demo ETS page: live ETS table inventory.".
 
 -behaviour(nit_callback).
 

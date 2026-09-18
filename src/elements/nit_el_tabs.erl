@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Tabs Element
-%%%
-%%% Renders a tabbed container with tab bar and content area.
-%%% @end
+%%% NitUI Tabs Element
 %%%-------------------------------------------------------------------
 -module(nit_el_tabs).
+-moduledoc """
+NitUI Tabs Element.
+
+Renders a tabbed container with tab bar and content area.
+""".
 
 -behaviour(nit_element).
 

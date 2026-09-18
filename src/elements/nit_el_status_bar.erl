@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Status Bar Element
-%%%
-%%% Displays a bottom status bar with keyboard shortcuts.
-%%% @end
+%%% Status Bar Element
 %%%-------------------------------------------------------------------
 -module(nit_el_status_bar).
+-moduledoc """
+Status Bar Element.
+
+Displays a bottom status bar with keyboard shortcuts.
+""".
 
 -behaviour(nit_element).
 

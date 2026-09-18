@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Button Element
-%%%
-%%% Renders a clickable button with focus indication.
-%%% @end
+%%% NitUI Button Element
 %%%-------------------------------------------------------------------
 -module(nit_el_button).
+-moduledoc """
+NitUI Button Element.
+
+Renders a clickable button with focus indication.
+""".
 
 -behaviour(nit_element).
 

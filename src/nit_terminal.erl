@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc OTP 29 terminal backend for NitUI.
-%%%
-%%% Centralizes terminal control sequence rendering through stdlib's
-%%% io_ansi module. Coordinates accepted by this module are 0-based.
-%%% @end
+%%% OTP 29 terminal backend for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_terminal).
+-moduledoc """
+OTP 29 terminal backend for NitUI.
+
+Centralizes terminal control sequence rendering through stdlib's
+`io_ansi` module. Coordinates accepted by this module are 0-based.
+""".
 
 -export([alternate_screen/0, alternate_screen_off/0]).
 -export([cursor_hide/0, cursor_show/0, cursor/2, clear/0, reset/0]).
@@ -29,7 +31,7 @@ cursor_hide() ->
 cursor_show() ->
     io_ansi:cursor_show().
 
-%% @doc Move to a 0-based row/column.
+-doc "Move to a 0-based row/column.".
 -spec cursor(integer(), integer()) -> unicode:chardata().
 cursor(Row, Col) ->
     io_ansi:cursor(max(0, Row), max(0, Col)).

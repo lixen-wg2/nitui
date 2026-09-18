@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI List Element
-%%%
-%%% A selectable list of items with keyboard navigation.
-%%% Supports both simple binary items and {Id, Label} tuples.
-%%% @end
+%%% NitUI List Element
 %%%-------------------------------------------------------------------
 -module(nit_el_list).
+-moduledoc """
+NitUI List Element.
+
+A selectable list of items with keyboard navigation.
+Supports both simple binary items and `{Id, Label}` tuples.
+""".
 
 -behaviour(nit_element).
 

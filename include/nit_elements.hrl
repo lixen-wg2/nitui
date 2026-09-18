@@ -1,11 +1,10 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Element Definitions
+%%% NitUI Element Definitions
 %%%
 %%% All UI elements are records with a common base set of fields.
 %%% Elements are rendered by calling Module:render(Element, Bounds).
 %%%
 %%% Inspired by Nitrogen/Nitro's element system.
-%%% @end
 %%%-------------------------------------------------------------------
 
 -ifndef(NIT_ELEMENTS_HRL).

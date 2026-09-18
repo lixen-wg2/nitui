@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI ANSI Helpers
-%%%
-%%% Common ANSI escape sequence utilities used by element modules.
-%%% @end
+%%% NitUI ANSI Helpers
 %%%-------------------------------------------------------------------
 -module(nit_ansi).
+-moduledoc """
+NitUI ANSI Helpers.
+
+Common ANSI escape sequence utilities used by element modules.
+""".
 
 -export([move_to/2, style_to_ansi/1, reset_style/0]).
 -export([truncate_content/2, repeat_bin/2]).
@@ -15,7 +17,7 @@
 %% Cursor Movement
 %%====================================================================
 
-%% @doc Move cursor to row, col (0-based)
+-doc "Move cursor to row, col (0-based).".
 -spec move_to(integer(), integer()) -> binary().
 move_to(Row, Col) ->
     iolist_to_binary(nit_terminal:cursor(Row, Col)).
@@ -38,14 +40,14 @@ reset_style() ->
 %% Text Helpers
 %%====================================================================
 
-%% @doc Truncate content to fit within MaxWidth
+-doc "Truncate content to fit within `MaxWidth`.".
 -spec truncate_content(iodata(), integer()) -> binary().
 truncate_content(_Content, MaxWidth) when MaxWidth =< 0 ->
     <<>>;
 truncate_content(Content, MaxWidth) ->
     nit_unicode:truncate(Content, MaxWidth).
 
-%% @doc Repeat a binary N times
+-doc "Repeat a binary N times.".
 -spec repeat_bin(binary(), integer()) -> iolist().
 repeat_bin(_Bin, N) when N =< 0 -> [];
 repeat_bin(Bin, N) -> [Bin || _ <- lists:seq(1, N)].
@@ -54,7 +56,7 @@ repeat_bin(Bin, N) -> [Bin || _ <- lists:seq(1, N)].
 %% Border Helpers
 %%====================================================================
 
-%% @doc Get border characters for a border style
+-doc "Get border characters for a border style.".
 -spec border_chars(atom()) -> {binary(), binary(), binary(), binary(), binary(), binary()}.
 border_chars(single) -> 
     {<<"┌"/utf8>>, <<"┐"/utf8>>, <<"└"/utf8>>, <<"┘"/utf8>>, <<"─"/utf8>>, <<"│"/utf8>>};
@@ -65,7 +67,7 @@ border_chars(rounded) ->
 border_chars(_) -> 
     {<<"┌"/utf8>>, <<"┐"/utf8>>, <<"└"/utf8>>, <<"┘"/utf8>>, <<"─"/utf8>>, <<"│"/utf8>>}.
 
-%% @doc Render a title line with horizontal border characters
+-doc "Render a title line with horizontal border characters.".
 -spec render_title_line(undefined | binary() | string(), binary(), integer()) -> iolist().
 render_title_line(undefined, HZ, Width) ->
     repeat_bin(HZ, Width);
@@ -85,13 +87,13 @@ render_title_line(Title, HZ, Width) ->
 %% Size Helpers
 %%====================================================================
 
-%% @doc Resolve auto size to available space
+-doc "Resolve auto size to available space.".
 -spec resolve_size(auto | fill | integer(), integer()) -> integer().
 resolve_size(auto, Available) -> Available;
 resolve_size(fill, Available) -> Available;
 resolve_size(Size, _Available) when is_integer(Size) -> Size.
 
-%% @doc Render a box border (used by box, tabs, modal)
+-doc "Render a box border (used by box, tabs, modal).".
 -spec render_box_border(integer(), integer(), integer(), integer(),
                         map(), undefined | binary() | string(), atom()) -> iolist().
 render_box_border(ActualX, ActualY, Width, Height, Style, Title, Border) ->

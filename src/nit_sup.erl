@@ -1,14 +1,17 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI top-level supervisor.
-%%%
-%%% Supervises:
-%%% - nit_tty: TTY owner process (prim_tty state, cleanup)
-%%% - nit_input: Input reader and parser
-%%%
-%%% Uses one_for_all strategy since all components depend on each other.
-%%% @end
+%%% NitUI top-level supervisor
 %%%-------------------------------------------------------------------
 -module(nit_sup).
+-moduledoc """
+NitUI top-level supervisor.
+
+Supervises:
+
+- `nit_tty`: TTY owner process (`prim_tty` state, cleanup)
+- `nit_input`: input reader and parser
+
+Uses a `one_for_all` strategy since all components depend on each other.
+""".
 
 -behaviour(supervisor).
 
@@ -17,18 +20,12 @@
 
 -define(SERVER, ?MODULE).
 
-%%--------------------------------------------------------------------
-%% @doc Start the supervisor.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Start the supervisor.".
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-%%--------------------------------------------------------------------
-%% @doc Supervisor init callback.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Supervisor init callback.".
 -spec init([]) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
 init([]) ->
     SupFlags = #{

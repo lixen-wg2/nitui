@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI HBox Element
-%%%
-%%% Renders children horizontally with optional spacing.
-%%% @end
+%%% NitUI HBox Element
 %%%-------------------------------------------------------------------
 -module(nit_el_hbox).
+-moduledoc """
+NitUI HBox Element.
+
+Renders children horizontally with optional spacing.
+""".
 
 -behaviour(nit_element).
 

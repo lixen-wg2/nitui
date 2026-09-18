@@ -1,12 +1,14 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI TUI Framework - Main API module.
-%%%
-%%% NitUI is a Nitrogen-inspired terminal UI framework for Erlang.
-%%% This module provides the public API for starting and interacting
-%%% with TUI applications.
-%%% @end
+%%% NitUI TUI Framework - Main API module
 %%%-------------------------------------------------------------------
 -module(nitui).
+-moduledoc """
+NitUI TUI Framework. Main API module.
+
+NitUI is a Nitrogen-inspired terminal UI framework for Erlang.
+This module provides the public API for starting and interacting
+with TUI applications.
+""".
 
 -include("nit_elements.hrl").
 
@@ -15,10 +17,7 @@
 -export([selected_item/1, selected_item/2, selected_item/3]).
 -export([copy_to_clipboard/1]).
 
-%%--------------------------------------------------------------------
-%% @doc Start the NitUI TUI application.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Start the NitUI TUI application.".
 -spec start() -> ok | {error, term()}.
 start() ->
     case application:ensure_all_started(nitui) of
@@ -26,27 +25,26 @@ start() ->
         {error, _} = Error -> Error
     end.
 
-%%--------------------------------------------------------------------
-%% @doc Stop the NitUI TUI application.
-%% @end
-%%--------------------------------------------------------------------
+-doc "Stop the NitUI TUI application.".
 -spec stop() -> ok | {error, term()}.
 stop() ->
     application:stop(nitui).
 
-%% @doc Explicitly copy UTF-8 text through the active terminal using OSC 52.
-%% `sent' means terminal output, not that the clipboard accepted the text.
-%% See nit_clipboard:copy/1 for opt-out, size limit and transport settings.
+-doc """
+Explicitly copy UTF-8 text through the active terminal using OSC 52.
+
+`sent` means terminal output, not that the clipboard accepted the text.
+See `nit_clipboard:copy/1` for opt-out, size limit and transport settings.
+""".
 -spec copy_to_clipboard(unicode:chardata()) -> nit_clipboard:result().
 copy_to_clipboard(Text) ->
     nit_clipboard:copy(Text).
 
-%%--------------------------------------------------------------------
-%% @doc Return the selected item for a list element in the current view
-%% context. The id may point directly to a list or to a container that
-%% contains a list.
-%% @end
-%%--------------------------------------------------------------------
+-doc """
+Return the selected item for a list element in the current view context.
+
+The id may point directly to a list or to a container that contains a list.
+""".
 -spec selected_item(term()) -> term() | undefined.
 selected_item(ElementId) ->
     case erlang:get(nitui_view_tree) of
@@ -54,11 +52,11 @@ selected_item(ElementId) ->
         Tree -> selected_item_from_tree(Tree, ElementId)
     end.
 
-%%--------------------------------------------------------------------
-%% @doc Return the selected item from a zero-based list selection.
-%% Falls back to the first item when the selection is out of range.
-%% @end
-%%--------------------------------------------------------------------
+-doc """
+Return the selected item from a zero-based list selection.
+
+Falls back to the first item when the selection is out of range.
+""".
 -spec selected_item([Item], non_neg_integer()) -> Item | undefined.
 selected_item(Items, SelectedIdx) ->
     case nit_engine:list_selected_item(Items, SelectedIdx) of
@@ -71,11 +69,10 @@ selected_item(Items, SelectedIdx) ->
             Item
     end.
 
-%%--------------------------------------------------------------------
-%% @doc Return the selected item, the first item for an invalid selection,
-%% or Default for an empty list.
-%% @end
-%%--------------------------------------------------------------------
+-doc """
+Return the selected item, the first item for an invalid selection,
+or `Default` for an empty list.
+""".
 -spec selected_item([Item], non_neg_integer(), Default) -> Item | Default.
 selected_item(Items, SelectedIdx, Default) ->
     case selected_item(Items, SelectedIdx) of

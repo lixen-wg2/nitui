@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Small formatting helpers for common TUI display values.
-%%% @end
+%%% Formatting helpers for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_format).
+-moduledoc "Small formatting helpers for common TUI display values.".
 
 -export([bytes/1, commas/1, duration/1]).
 

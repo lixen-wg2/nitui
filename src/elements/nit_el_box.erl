@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Box Element
-%%%
-%%% Renders a container with optional border and title.
-%%% @end
+%%% NitUI Box Element
 %%%-------------------------------------------------------------------
 -module(nit_el_box).
+-moduledoc """
+NitUI Box Element.
+
+Renders a container with optional border and title.
+""".
 
 -behaviour(nit_element).
 

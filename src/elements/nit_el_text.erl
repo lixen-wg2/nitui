@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Text Element
-%%%
-%%% Renders a simple text string.
-%%% @end
+%%% NitUI Text Element
 %%%-------------------------------------------------------------------
 -module(nit_el_text).
+-moduledoc """
+NitUI Text Element.
+
+Renders a simple text string.
+""".
 
 -behaviour(nit_element).
 

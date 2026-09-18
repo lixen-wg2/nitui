@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Demo Widgets - Showcases list, tabs, scroll, and table elements.
-%%% @end
+%%% Demo Widgets - showcases list, tabs, scroll, and table elements.
 %%%-------------------------------------------------------------------
 -module(demo_widgets).
+-moduledoc "Demo widgets page: list, tabs, scroll container and table showcase.".
 
 -behaviour(nit_callback).
 

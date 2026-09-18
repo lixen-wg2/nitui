@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
-%%% @doc Unicode display helpers for terminal rendering.
-%%% @end
+%%% Unicode helpers for NitUI
 %%%-------------------------------------------------------------------
 -module(nit_unicode).
+-moduledoc "Unicode display helpers for terminal rendering.".
 
 -export([to_charlist/1, display_width/1, truncate/2, contains_wide/1]).
 

@@ -1,11 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Renderer
-%%%
-%%% Renders element trees to ANSI escape sequences.
-%%% Each element is rendered within its calculated bounds.
-%%% @end
+%%% NitUI Renderer
 %%%-------------------------------------------------------------------
 -module(nit_render).
+-moduledoc """
+NitUI Renderer.
+
+Renders element trees to ANSI escape sequences.
+Each element is rendered within its calculated bounds.
+""".
 
 -include("nit_elements.hrl").
 
@@ -17,32 +19,41 @@
 %% API
 %%====================================================================
 
-%% @doc Render an element tree to iolist within given bounds.
-%% Dispatches to element modules via nit_element behaviour.
+-doc """
+Render an element tree to an iolist within the given bounds.
+
+Dispatches to element modules via the `nit_element` behaviour.
+""".
 -spec render(tuple(), #bounds{}) -> iolist().
 render(Element, Bounds) ->
     render_with_opts(Element, Bounds, #{}).
 
-%% @doc Render an element with options (focused, base_style, etc.)
-%% This is the main dispatch function to element modules.
+-doc """
+Render an element with options (focused, base_style, etc.).
+
+This is the main dispatch function to element modules.
+""".
 -spec render_with_opts(tuple(), #bounds{}, map()) -> iolist().
 render_with_opts(Element, Bounds, Opts) when is_tuple(Element) ->
     nit_element:render(Element, Bounds, Opts);
 render_with_opts(_, _, _) ->
     [].
 
-%% @doc Render element tree with dim styling (for background behind modal).
+-doc "Render an element tree with dim styling (for the background behind a modal).".
 -spec render_dimmed(tuple(), #bounds{}, term()) -> iolist().
 render_dimmed(Element, Bounds, FocusedId) ->
     render_focused_styled(Element, Bounds, FocusedId, #{dim => true}).
 
-%% @doc Render with two-level focus: container and child.
-%% Container gets a highlighted border, child gets element focus.
+-doc """
+Render with two-level focus: container and child.
+
+The container gets a highlighted border, the child gets element focus.
+""".
 -spec render_two_level(tuple(), #bounds{}, term(), term()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild) ->
     render_two_level(Element, Bounds, FocusedContainer, FocusedChild, #{}).
 
-%% @doc Render with two-level focus and additional options (e.g., cursor_visible).
+-doc "Render with two-level focus and additional options (e.g. `cursor_visible`).".
 -spec render_two_level(tuple(), #bounds{}, term(), term(), map()) -> iolist().
 render_two_level(Element, Bounds, FocusedContainer, FocusedChild, Opts) ->
     Child = case nit_focus:text_view_target(Element, FocusedContainer, FocusedChild) of

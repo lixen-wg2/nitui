@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc Tree Element
-%%%
-%%% Displays a hierarchical tree view with expand/collapse.
-%%% @end
+%%% Tree Element
 %%%-------------------------------------------------------------------
 -module(nit_el_tree).
+-moduledoc """
+Tree Element.
+
+Displays a hierarchical tree view with expand/collapse.
+""".
 
 -behaviour(nit_element).
 

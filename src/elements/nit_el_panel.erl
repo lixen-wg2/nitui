@@ -1,10 +1,12 @@
 %%%-------------------------------------------------------------------
-%%% @doc NitUI Panel Element
-%%%
-%%% Renders a simple container without border.
-%%% @end
+%%% NitUI Panel Element
 %%%-------------------------------------------------------------------
 -module(nit_el_panel).
+-moduledoc """
+NitUI Panel Element.
+
+Renders a simple container without border.
+""".
 
 -behaviour(nit_element).
 
